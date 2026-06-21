@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
-# ============================================================
-#   Bakartech Academy Bot — Single File Version
-#   ربات تلگرام آکادمی Bakartech
-# ============================================================
-
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from telegram.constants import ParseMode
 
 # ── تنظیمات ─────────────────────────────────────────────────
 BOT_TOKEN        = "7255636020:AAEV8_AucufFsTDBuRXqYVH-KxI6woH-Eqg"
 ADMIN_USERNAME   = "kamaltarder"
+ADMIN_CHAT_ID    = None  # خودکار پر می‌شود وقتی ادمین /start بزند
 SUPPORT_USERNAME = "BakarSupport"
 SKOOL_LINK       = "https://www.skool.com/bakartech-2284/about?ref=7789a6422dd8477b9d3d5cf4ec048434"
 WHATSAPP_LINK    = "https://wa.me/447309687168"
 LINKTREE_LINK    = "https://linktr.ee/kamalhaqjo"
 USDT_WALLET      = "TCVe4zCoiduERCq3AzeK5NgY67u4qdAL4M"
+VIP_CHANNEL_LINK = "https://t.me/+RaaTRL_n5uc5Yjk8"  # لینک VIP را اینجا بگذار
 
 PACKAGES = {
     "1month":  {"label": "🥉 یک ماهه",  "price": 30},
     "3months": {"label": "🥈 سه ماهه",  "price": 75},
     "6months": {"label": "🥇 شش ماهه", "price": 120},
 }
+
+# ── دیتابیس ساده در حافظه ───────────────────────────────────
+pending_payments = {}  # user_id: {name, package, price, chat_id}
+admin_ids = set()      # آیدی ادمین‌ها
 
 # ── متن‌ها ───────────────────────────────────────────────────
 WELCOME = """سلام 🙋🏻‍♂️
@@ -64,17 +65,11 @@ RULES = """📋 <b>قوانین آکادمی Bakartech</b>
 
 ━━━━━━━━━━━━━━━━━━━━
 ⚠️ تمام خدمات ارائه‌شده <b>آموزشی</b> هستند.
-
 ⚠️ <b>مسئولیت</b> تمام معاملات کاملاً با خود تریدر است.
-
 ⚠️ <b>هیچ تضمین سودی</b> وجود ندارد.
-
 ⚠️ <b>هیچ مبلغی</b> بعد از پرداخت قابل برگشت نیست.
-
 ⚠️ ورود به VIP به معنای <b>قبول کامل</b> تمام قوانین است.
-
 ⚠️ اشتراک VIP <b>قابل انتقال</b> به شخص دیگری نیست.
-
 ⚠️ هرگونه <b>لیک کردن</b> محتوای VIP منجر به اخراج فوری می‌شود.
 ━━━━━━━━━━━━━━━━━━━━"""
 
@@ -100,10 +95,9 @@ FAQS = [
     {"q": "❓ بعد از پرداخت چه می‌شود؟",
      "a": """✅ <b>بعد از پرداخت:</b>
 
-1️⃣ رسید پرداخت را به ادمین بفرست
+1️⃣ رسید پرداخت را اینجا بفرست
 2️⃣ ادمین پرداخت را تأیید می‌کند
-3️⃣ لینک ورود به اوطاق شکار VIP برایت فرستاده می‌شود
-4️⃣ وارد گروه می‌شوی و شروع می‌کنی
+3️⃣ لینک ورود به اوطاق شکار VIP خودکار برایت فرستاده می‌شود
 
 ⏱ معمولاً در کمتر از ۲۴ ساعت انجام می‌شود."""},
 
@@ -126,8 +120,8 @@ FAQS = [
 1️⃣ اوطاق شکار VIP را انتخاب کن
 2️⃣ پکیج مورد نظر را بزن
 3️⃣ پرداخت را انجام بده
-4️⃣ رسید را به ادمین بفرست
-5️⃣ منتظر تأیید و لینک ورود باش"""},
+4️⃣ رسید را اینجا بفرست
+5️⃣ لینک VIP خودکار برایت می‌آید"""},
 
     {"q": "❓ دوره آموزشی از کجا ببینم؟",
      "a": """📚 <b>دوره‌های آموزشی:</b>
@@ -137,7 +131,7 @@ FAQS = [
 از منوی اصلی «📚 دوره‌های آموزشی» را بزن."""},
 
     {"q": "❓ چگونه با پشتیبانی تماس بگیرم؟",
-     "a": f"""👨‍💻 <b>ارتباط با پشتیبانی:</b>
+     "a": """👨‍💻 <b>ارتباط با پشتیبانی:</b>
 
 📩 تلگرام: @BakarSupport
 📱 واتساپ: wa.me/447309687168"""},
@@ -171,15 +165,8 @@ def kb_payment(pkg_key):
 
 def kb_after_usdt():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ پرداخت کردم، رسید می‌فرستم", callback_data="payment_done")],
+        [InlineKeyboardButton("✅ رسید پرداخت را اینجا بفرست", callback_data="send_receipt")],
         [InlineKeyboardButton("🔙 بازگشت", callback_data="vip")],
-    ])
-
-def kb_after_payment():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📩 ارسال رسید به ادمین", url=f"https://t.me/{ADMIN_USERNAME}")],
-        [InlineKeyboardButton("💬 پشتیبانی", url=f"https://t.me/{SUPPORT_USERNAME}")],
-        [InlineKeyboardButton("🏠 منوی اصلی", callback_data="back_main")],
     ])
 
 def kb_support():
@@ -218,14 +205,30 @@ def kb_courses():
         [InlineKeyboardButton("🔙 بازگشت", callback_data="back_main")],
     ])
 
+def kb_admin_confirm(user_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ تأیید و ارسال لینک VIP", callback_data=f"confirm_{user_id}")],
+        [InlineKeyboardButton("❌ رد کردن", callback_data=f"reject_{user_id}")],
+    ])
+
 # ── هندلرها ──────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    # اگر ادمین بود ثبت کن
+    if user.username and user.username.lower() == ADMIN_USERNAME.lower():
+        admin_ids.add(user.id)
+        await update.message.reply_text(
+            f"👋 سلام ادمین عزیز!\n\nآیدی شما ثبت شد: `{user.id}`\n\nحالا می‌توانید پرداخت‌ها را تأیید کنید.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
     await update.message.reply_text(WELCOME, reply_markup=kb_main(), parse_mode=ParseMode.HTML)
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    user = query.from_user
 
     if data == "back_main":
         await query.edit_message_text(WELCOME, reply_markup=kb_main(), parse_mode=ParseMode.HTML)
@@ -254,6 +257,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pkg_key = data.replace("pay_usdt_", "")
         pkg = PACKAGES.get(pkg_key)
         if pkg:
+            context.user_data["pkg"] = pkg_key
+            # ذخیره اطلاعات پرداخت
+            pending_payments[user.id] = {
+                "name": user.full_name,
+                "username": user.username or "ندارد",
+                "package": pkg["label"],
+                "price": pkg["price"],
+                "chat_id": user.id,
+                "status": "waiting_receipt"
+            }
             text = (
                 f"💳 <b>پرداخت با USDT (TRC20)</b>\n\n"
                 f"📦 پکیج: <b>{pkg['label']}</b>\n"
@@ -262,17 +275,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🔐 <b>آدرس کیف پول:</b>\n"
                 f"<code>{USDT_WALLET}</code>\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"⚠️ فقط از شبکه <b>TRC20</b> ارسال کنید\n"
-                f"✅ بعد از پرداخت رسید را به ادمین بفرستید"
+                f"⚠️ فقط از شبکه <b>TRC20</b> ارسال کنید\n\n"
+                f"✅ بعد از پرداخت، رسید (اسکرین‌شات) را اینجا بفرست"
             )
             await query.edit_message_text(text, reply_markup=kb_after_usdt(), parse_mode=ParseMode.HTML)
 
-    elif data == "payment_done":
+    elif data == "send_receipt":
+        context.user_data["waiting_receipt"] = True
         await query.edit_message_text(
-            "✅ <b>ممنون از پرداخت شما!</b>\n\n"
-            "رسید پرداخت را به ادمین بفرست تا اشتراک VIP فعال شود.\n\n"
-            "⏱ فعال‌سازی در کمتر از ۲۴ ساعت انجام می‌شود.",
-            reply_markup=kb_after_payment(), parse_mode=ParseMode.HTML)
+            "📸 <b>رسید پرداخت را بفرست</b>\n\n"
+            "اسکرین‌شات رسید پرداخت USDT را همین‌جا بفرست.\n\n"
+            "بعد از تأیید ادمین، لینک VIP برایت ارسال می‌شود. ⏱",
+            parse_mode=ParseMode.HTML)
 
     elif data == "faq":
         await query.edit_message_text(
@@ -301,6 +315,100 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "rules":
         await query.edit_message_text(RULES, reply_markup=kb_back_main(), parse_mode=ParseMode.HTML)
 
+    # ── تأیید ادمین ──
+    elif data.startswith("confirm_"):
+        if user.id in admin_ids or user.username and user.username.lower() == ADMIN_USERNAME.lower():
+            customer_id = int(data.replace("confirm_", ""))
+            payment = pending_payments.get(customer_id)
+            if payment:
+                # ارسال لینک VIP به مشتری
+                await context.bot.send_message(
+                    chat_id=customer_id,
+                    text=f"🎉 <b>تبریک! پرداخت شما تأیید شد!</b>\n\n"
+                         f"✅ اشتراک <b>{payment['package']}</b> فعال شد.\n\n"
+                         f"👇 لینک ورود به اوطاق شکار VIP:\n"
+                         f"{VIP_CHANNEL_LINK}\n\n"
+                         f"خوش آمدی به خانواده Bakartech 🦅",
+                    parse_mode=ParseMode.HTML
+                )
+                # آپدیت پیام ادمین
+                await query.edit_message_text(
+                    f"✅ تأیید شد!\n\nلینک VIP به {payment['name']} ارسال شد.",
+                    parse_mode=ParseMode.HTML
+                )
+                del pending_payments[customer_id]
+
+    elif data.startswith("reject_"):
+        if user.id in admin_ids or user.username and user.username.lower() == ADMIN_USERNAME.lower():
+            customer_id = int(data.replace("reject_", ""))
+            payment = pending_payments.get(customer_id)
+            if payment:
+                await context.bot.send_message(
+                    chat_id=customer_id,
+                    text="❌ <b>پرداخت تأیید نشد.</b>\n\n"
+                         "لطفاً با پشتیبانی تماس بگیرید:\n@BakarSupport",
+                    parse_mode=ParseMode.HTML
+                )
+                await query.edit_message_text("❌ رد شد.")
+                del pending_payments[customer_id]
+
+# ── هندلر دریافت رسید (عکس یا فایل) ────────────────────────
+async def receipt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+
+    if not context.user_data.get("waiting_receipt"):
+        return
+
+    payment = pending_payments.get(user.id)
+    if not payment:
+        await update.message.reply_text(
+            "⚠️ ابتدا یک پکیج انتخاب کن و پرداخت را انجام بده.",
+            reply_markup=kb_main()
+        )
+        return
+
+    context.user_data["waiting_receipt"] = False
+
+    # پیام به مشتری
+    await update.message.reply_text(
+        "✅ <b>رسید دریافت شد!</b>\n\n"
+        "ادمین در حال بررسی است.\n"
+        "⏱ به زودی لینک VIP برایت ارسال می‌شود.",
+        parse_mode=ParseMode.HTML
+    )
+
+    # ارسال به ادمین
+    admin_text = (
+        f"🔔 <b>پرداخت جدید!</b>\n\n"
+        f"👤 نام: {payment['name']}\n"
+        f"📱 یوزرنیم: @{payment['username']}\n"
+        f"📦 پکیج: {payment['package']}\n"
+        f"💵 مبلغ: {payment['price']}$\n\n"
+        f"👇 رسید پرداخت:"
+    )
+
+    for admin_id in admin_ids:
+        try:
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=admin_text,
+                parse_mode=ParseMode.HTML
+            )
+            # فوروارد رسید
+            await update.message.forward(chat_id=admin_id)
+            # دکمه تأیید/رد
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text="تأیید یا رد کنید:",
+                reply_markup=kb_admin_confirm(user.id)
+            )
+        except Exception as e:
+            logging.error(f"Error sending to admin: {e}")
+
+    # اگر ادمین هنوز /start نزده
+    if not admin_ids:
+        logging.warning("هیچ ادمینی ثبت نشده! ادمین باید /start بزند.")
+
 # ── اجرا ─────────────────────────────────────────────────────
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -312,7 +420,8 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callback_handler))
-    print("✅ ربات Bakartech شروع شد...")
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, receipt_handler))
+    print("✅ ربات Bakartech v2 شروع شد...")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
