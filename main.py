@@ -10,7 +10,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from telegram.constants import ParseMode
 
 # ── تنظیمات ─────────────────────────────────────────────────
-BOT_TOKEN        = "7255636020:AAE2uVHWtRWmGl2eXjILnGCCG4hYjKsmOIg"
+BOT_TOKEN        = "7255636020:AAEV8_AucufFsTDBuRXqYVH-KxI6woH-Eqg"
 ADMIN_USERNAME   = "kamaltarder"
 SUPPORT_USERNAME = "BakarSupport"
 SKOOL_LINK       = "https://www.skool.com/bakartech-2284/about?ref=7789a6422dd8477b9d3d5cf4ec048434"
