@@ -1,0 +1,15 @@
+{
+  "name": "bakartech-telegram-bot-phase1",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "db:init": "wrangler d1 execute bakartech-db --remote --file=./schema.sql",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "wrangler": "^4.26.0"
+  }
+}
