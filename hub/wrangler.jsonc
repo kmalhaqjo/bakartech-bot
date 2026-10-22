@@ -5,6 +5,7 @@
   "compatibility_date": "2026-07-26",
   "observability": { "enabled": true },
   "triggers": { "crons": ["* * * * *"] },
+  "ai": { "binding": "AI" },
   "d1_databases": [
     {
       "binding": "DB",
@@ -29,5 +30,5 @@
     "ANALYSIS_TG_CHAT_ID": "-1003211477952"
   }
   // Secrets (set once in the Cloudflare dashboard → Settings → Variables and Secrets):
-  //   DISCORD_BOT_TOKEN, GROQ_API_KEY, ANALYSIS_TG_BOT_TOKEN (bot that posts in the Kamalhaqjo channel)
+  //   DISCORD_BOT_TOKEN (required). Optional: GROQ_API_KEY, ANALYSIS_TG_BOT_TOKEN
 }

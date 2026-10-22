@@ -22,22 +22,24 @@ async function price(symbol: string): Promise<number | null> {
 }
 
 async function dailyAnalysis(e: Env, stamp: string) {
-  if (!e.GROQ_API_KEY) return;
   const lines = await Promise.all(Object.entries(MARKETS).map(async ([n, s]) => `${n}: ${(await price(s)) ?? 'دریافت نشد'}`));
   const prompt = `امروز: ${stamp}\n\nقیمت‌های زنده بازار:\n${lines.join('\n')}\n\nبر اساس همین قیمت‌ها تحلیل کوتاه روزانه بده:\n1. خلاصه وضعیت بازار\n2. تحلیل طلا XAUUSD\n3. نکات مهم برای تریدرها\n4. هشدار مدیریت ریسک\n\nتأکید: هیچ قیمت دیگری نساز و حدس نزن.`;
-  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${e.GROQ_API_KEY}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'system', content: ANALYSIS_SYSTEM_PROMPT }, { role: 'user', content: prompt }],
-      temperature: 0.2,
-      max_tokens: 1800,
-    }),
-  });
-  const j: any = await r.json();
-  const text: string = j.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error('Groq: ' + JSON.stringify(j).slice(0, 300));
+  const messages = [{ role: 'system', content: ANALYSIS_SYSTEM_PROMPT }, { role: 'user', content: prompt }];
+  let text: string | undefined;
+  if (e.GROQ_API_KEY) {
+    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${e.GROQ_API_KEY}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages, temperature: 0.2, max_tokens: 1800 }),
+    });
+    const j: any = await r.json();
+    text = j.choices?.[0]?.message?.content?.trim();
+  } else {
+    // Cloudflare Workers AI — no API key needed
+    const out: any = await e.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { messages, max_tokens: 1800, temperature: 0.2 });
+    text = (out?.response || '').trim();
+  }
+  if (!text) throw new Error('analysis: empty response');
 
   const tgToken = e.ANALYSIS_TG_BOT_TOKEN;
   if (tgToken && e.ANALYSIS_TG_CHAT_ID) {

@@ -12,7 +12,8 @@ export interface Env {
   CH_SCREENSHOTS: string;  // daily analysis-screenshot request
   CH_JOURNAL: string;      // end-of-day trade report request (ثبت-معاملات-من)
   CH_LIVE_RESULTS: string; // live-trade results (نتایج-لایف-ترید)
-  // Daily analysis (optional)
+  // Daily analysis: Workers AI by default, Groq if a key is set
+  AI: Ai;
   GROQ_API_KEY?: string;
   ANALYSIS_TG_BOT_TOKEN?: string;
   ANALYSIS_TG_CHAT_ID?: string;

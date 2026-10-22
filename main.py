@@ -18,6 +18,10 @@ DISCORD_JOURNAL_WEBHOOK = os.environ.get("DISCORD_JOURNAL_WEBHOOK_URL") or DISCO
 
 TIMEZONE = pytz.timezone("Asia/Tehran")
 
+# Discord is now handled by the Cloudflare worker "bakartech-hub" (hub/).
+# This Railway bot only posts the daily analysis to Telegram unless DISCORD_FROM_RAILWAY=true.
+DISCORD_FROM_RAILWAY = os.environ.get("DISCORD_FROM_RAILWAY", "false").lower() == "true"
+
 # Daily request for members' analysis screenshots (Mon–Fri, before the New York session)
 SCREENSHOT_REQUESTS = [
     # Monday
@@ -173,6 +177,8 @@ async def send_telegram(text):
             await asyncio.sleep(1)
 
 async def send_discord(text):
+    if not DISCORD_FROM_RAILWAY:
+        return
     chunks = [text[i:i+1900] for i in range(0, len(text), 1900)]
     async with httpx.AsyncClient(timeout=30) as client:
         for chunk in chunks:
@@ -244,21 +250,24 @@ async def main():
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     scheduler.add_job(daily_analysis_job, "cron", hour=8, minute=0)
     # 16:00 Tehran = 15:30 Riyadh, one hour before the New York session opens
-    scheduler.add_job(screenshot_request_job, "cron", day_of_week="mon-fri", hour=16, minute=0)
-    # 22:30 Tehran = 22:00 Riyadh, after the main New York session hours
-    scheduler.add_job(trade_report_job, "cron", day_of_week="mon-fri", hour=22, minute=30)
+    if DISCORD_FROM_RAILWAY:
+        scheduler.add_job(screenshot_request_job, "cron", day_of_week="mon-fri", hour=16, minute=0)
+        # 22:30 Tehran = 22:00 Riyadh, after the main New York session hours
+        scheduler.add_job(trade_report_job, "cron", day_of_week="mon-fri", hour=22, minute=30)
     scheduler.start()
 
     if os.environ.get("RUN_NOW", "false").lower() == "true":
         await daily_analysis_job()
-        await screenshot_request_job()
-        await trade_report_job()
+        if DISCORD_FROM_RAILWAY:
+            await screenshot_request_job()
+            await trade_report_job()
 
     # Referral & rank system (runs only when DISCORD_BOT_TOKEN is set).
     # Any crash there is logged and never stops the daily posts above.
     try:
-        from referral import run_referral_bot
-        await run_referral_bot()
+        if DISCORD_FROM_RAILWAY:
+            from referral import run_referral_bot
+            await run_referral_bot()
     except Exception as e:
         log.exception(f"Referral bot stopped: {e}")
 
