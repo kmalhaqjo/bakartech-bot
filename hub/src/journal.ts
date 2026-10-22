@@ -62,7 +62,7 @@ function embedFor(j: any) {
     '',
     `🛑 استاپ‌لاس: ${yn(j.sl)}  |  📋 طبق پلن: ${yn(j.rules)}`,
     `🔁 اورترید: ${ynBad(j.overtrade)}  |  😤 انتقامی: ${ynBad(j.revenge)}`,
-    `🕐 خارج از سشن: ${ynBad(j.outside)}  |  📰 اخبار: ${Number(j.news) ? 'خبر مهم داشت ⚠️' : 'خبر مهم نبود ✅'}`,
+    `🕐 خارج از سشن: ${ynBad(j.outside)}  |  📰 اخبار: ${Number(j.news) ? 'بررسی شد ✅' : 'بررسی نشد ⚠️'}`,
     j.mood ? `🧠 حالت روانی: ${clip(j.mood, 80)}` : null,
     '',
     `✅ **بهترین تصمیم:** ${clip(j.best)}`,
