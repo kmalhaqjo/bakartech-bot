@@ -346,6 +346,9 @@ export async function dailyJournalSummary(e: Env, date: string) {
   await sendDiscord(e, channel, '', {
     title: `📊 خلاصهٔ ژورنال امروز | ${date}`,
     description: tg
+      .split('\n')
+      .slice(3) // title + date are already in the embed title
+      .join('\n')
       .replace(/<\/?b>/g, '**')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
