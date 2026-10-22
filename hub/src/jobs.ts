@@ -39,8 +39,8 @@ async function dailyAnalysis(e: Env, stamp: string) {
   const text: string = j.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error('Groq: ' + JSON.stringify(j).slice(0, 300));
 
-  const tgToken = e.ANALYSIS_TG_BOT_TOKEN || e.BOT_TOKEN;
-  if (e.ANALYSIS_TG_CHAT_ID) {
+  const tgToken = e.ANALYSIS_TG_BOT_TOKEN;
+  if (tgToken && e.ANALYSIS_TG_CHAT_ID) {
     for (const chunk of text.match(/[\s\S]{1,4000}/g) || []) {
       await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
         method: 'POST',

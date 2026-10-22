@@ -8,18 +8,11 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "bakartech-db",
-      "database_id": "PUT_YOUR_D1_DATABASE_ID_HERE"
+      "database_name": "bakartech-hub-db",
+      "database_id": "67877c6d-485d-457e-b31a-0ca6804470e3"
     }
   ],
   "vars": {
-    // Telegram — @Bakartechbot (اوطاق شکار)
-    "BOT_USERNAME": "Bakartechbot",
-    "ADMIN_IDS": "909200283",
-    "VIP_CHANNEL_ID": "-1003615555387",
-    "SUPPORT_URL": "https://t.me/BakarSupport",
-    "SKOOL_URL": "https://www.skool.com/bakartech-2284/about?ref=7789a6422dd8477b9d3d5cf4ec048434",
-
     // Discord — bakartech Academy server / Bakartech Academy Bot
     "DISCORD_APP_ID": "1516479046480039976",
     "DISCORD_PUBLIC_KEY": "de7b930271b23ca3ddab140ce1ebb868518922e0a2f4a6f7f2ea00a11dc878e9",
@@ -36,5 +29,5 @@
     "ANALYSIS_TG_CHAT_ID": "-1003211477952"
   }
   // Secrets (set once in the Cloudflare dashboard → Settings → Variables and Secrets):
-  //   BOT_TOKEN, WEBHOOK_SECRET, DISCORD_BOT_TOKEN, GROQ_API_KEY, ANALYSIS_TG_BOT_TOKEN (optional)
+  //   DISCORD_BOT_TOKEN, GROQ_API_KEY, ANALYSIS_TG_BOT_TOKEN (bot that posts in the Kamalhaqjo channel)
 }
