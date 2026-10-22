@@ -16,6 +16,12 @@ export default {
 
     if (url.pathname === '/discord/interactions' && req.method === 'POST') return handleInteraction(e, req);
 
+    // Blank scratch page (nothing is sent or stored) used for moving code between browser tabs
+    if (url.pathname === '/scratch')
+      return new Response('<meta charset="utf-8"><textarea id="t" style="width:95vw;height:90vh"></textarea>', {
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+
     // Opening https://<worker>/start registers the Discord slash commands
     if (url.pathname === '/start') {
       const res = e.DISCORD_BOT_TOKEN
