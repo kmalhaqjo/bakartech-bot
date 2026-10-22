@@ -8,6 +8,7 @@ import { Env, migrate } from './env';
 import { handleInteraction, pollDiscord, registerCommands } from './discord';
 import { runScheduledJobs } from './jobs';
 import { pollJournal } from './journal';
+import { processOnboarding } from './onboard';
 
 export default {
   async fetch(req: Request, e: Env, ctx: ExecutionContext): Promise<Response> {
@@ -15,7 +16,7 @@ export default {
     if (url.pathname === '/health') return new Response('OK');
     await migrate(e);
 
-    if (url.pathname === '/discord/interactions' && req.method === 'POST') return handleInteraction(e, req);
+    if (url.pathname === '/discord/interactions' && req.method === 'POST') return handleInteraction(e, req, ctx);
 
     // Blank scratch page (nothing is sent or stored) used for moving code between browser tabs
     if (url.pathname === '/scratch')
@@ -42,5 +43,6 @@ export default {
     ctx.waitUntil(pollDiscord(e).catch((err) => console.error('discord poll', err)));
     ctx.waitUntil(runScheduledJobs(e, event.scheduledTime));
     ctx.waitUntil(pollJournal(e).catch((err) => console.error('journal', err)));
+    ctx.waitUntil(processOnboarding(e).catch((err) => console.error('onboarding', err)));
   },
 };

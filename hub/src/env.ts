@@ -19,6 +19,12 @@ export interface Env {
   GROQ_API_KEY?: string;
   ANALYSIS_TG_BOT_TOKEN?: string;
   ANALYSIS_TG_CHAT_ID?: string;
+  // Journal automation
+  JOURNAL_URL?: string;            // https://bakartech-journal-v2.pages.dev
+  JOURNAL_ADMIN_CODE?: string;     // default "admin"
+  JOURNAL_ADMIN_PASSWORD?: string; // secret — lets the hub create student accounts via the journal app
+  JOURNAL_NEW_LEVEL?: string;      // level for new accounts: Student | VIP
+  TG_SUMMARY_CHAT_ID?: string;     // Telegram chat(s) for the daily journal summary (comma separated); default ANALYSIS_TG_CHAT_ID
 }
 
 const SCHEMA = [

@@ -1,4 +1,6 @@
 import { Env, TIERS, tierFor, nextTier, fa, FOOTER, kvGet, kvSet } from './env';
+import { queueNewMembers, ensureAccount, accountEmbed } from './onboard';
+import { propStats, statsText } from './journal';
 
 const API = 'https://discord.com/api/v10';
 
@@ -162,6 +164,7 @@ export async function pollDiscord(e: Env) {
   stmts.push(e.DB.prepare(`DELETE FROM d_invites`));
   for (const inv of invites) stmts.push(e.DB.prepare(`INSERT INTO d_invites(code,uses,inviter_id) VALUES(?,?,?)`).bind(inv.code, inv.uses || 0, inv.inviter?.id || null));
   await e.DB.batch(stmts);
+  if (!firstRun) await queueNewMembers(e, newMembers).catch((err) => console.error('queue onboard', err));
 
   for (const uid of affected) await refreshRank(e, uid, byId.get(uid)).catch((err) => console.error('rank', uid, err));
 }
@@ -184,6 +187,13 @@ export const COMMANDS = [
   { name: 'invite', description: 'لینک دعوت اختصاصی خودت را بگیر و رتبه‌ات را بالا ببر 🎯', type: 1 },
   { name: 'my-invites', description: 'تعداد دعوت‌های موفق و رتبهٔ خودت را ببین 📊', type: 1 },
   { name: 'top-inviters', description: 'جدول بهترین دعوت‌کننده‌های آکادمی 🏆', type: 1 },
+  { name: 'my-journal', description: 'لینک، نام کاربری و رمز ژورنال Bakartech خودت را بگیر 📓', type: 1 },
+  {
+    name: 'my-stats',
+    description: 'کارنامهٔ ۳۰ روزهٔ ژورنالت و فاصله‌ات تا حساب پراپ 📊',
+    type: 1,
+    options: [{ type: 3, name: 'code', description: 'کد ژورنال (اگر حسابت را قبلاً گرفته‌ای لازم نیست)', required: false }],
+  },
 ];
 
 export async function registerCommands(e: Env) {
@@ -203,7 +213,35 @@ async function verifySignature(e: Env, req: Request, body: string) {
 const reply = (content: string, ephemeral = true, embeds?: any[]) =>
   Response.json({ type: 4, data: { content, embeds, flags: ephemeral ? 64 : 0, allowed_mentions: { parse: [] } } });
 
-export async function handleInteraction(e: Env, req: Request): Promise<Response> {
+/** Slow work after a deferred (ephemeral) reply */
+async function followUp(e: Env, i: any, data: any) {
+  await dapi(e, 'PATCH', `/webhooks/${e.DISCORD_APP_ID}/${i.token}/messages/@original`, { allowed_mentions: { parse: [] }, ...data });
+}
+
+async function myJournal(e: Env, i: any) {
+  const user = i.member?.user || i.user;
+  try {
+    const acc = await ensureAccount(e, user);
+    await followUp(e, i, { content: acc.created ? '✅ حساب ژورنالت ساخته شد!' : '📓 حساب ژورنال تو:', embeds: [accountEmbed(e, acc.code, acc.password, acc.name)] });
+  } catch (err: any) {
+    console.error('my-journal', err);
+    await followUp(e, i, { content: '⚠️ الان نتوانستم حساب ژورنال را بسازم؛ چند دقیقهٔ دیگر دوباره `/my-journal` را بزن یا به ادمین خبر بده 🙏' });
+  }
+}
+
+async function myStats(e: Env, i: any) {
+  const uid = i.member?.user?.id || i.user?.id;
+  const opt = (i.data.options || []).find((o: any) => o.name === 'code')?.value;
+  const acc: any = await e.DB.prepare(`SELECT code FROM j_accounts WHERE discord_id=? AND status='done'`).bind(uid).first().catch(() => null);
+  const code = String(opt || acc?.code || '').trim();
+  if (!code) return followUp(e, i, { content: '📓 هنوز حساب ژورنال نداری. با دستور `/my-journal` بگیرش، یا کد ژورنالت را در همین دستور بنویس 👈' });
+  const today = new Date(Date.now() + 210 * 60_000).toISOString().slice(0, 10);
+  const s = (await propStats(e, today)).find((x) => String(x.code).toLowerCase() === code.toLowerCase());
+  if (!s) return followUp(e, i, { content: `📭 در ۳۰ روز اخیر ژورنالی با کد \`${code}\` ثبت نشده. از امروز شروع کن ✍️` });
+  return followUp(e, i, { content: statsText(s) });
+}
+
+export async function handleInteraction(e: Env, req: Request, ctx?: ExecutionContext): Promise<Response> {
   const body = await req.text();
   if (!(await verifySignature(e, req, body))) return new Response('bad signature', { status: 401 });
   const i = JSON.parse(body);
@@ -244,5 +282,10 @@ export async function handleInteraction(e: Env, req: Request): Promise<Response>
     );
   }
   if (name === 'top-inviters') return reply('', false, [await leaderboardEmbed(e, '🏆 بهترین دعوت‌کننده‌های آکادمی')]);
+  if (name === 'my-journal' || name === 'my-stats') {
+    const work = (name === 'my-journal' ? myJournal(e, i) : myStats(e, i)).catch((err) => console.error(name, err));
+    if (ctx) ctx.waitUntil(work);
+    return Response.json({ type: 5, data: { flags: 64 } }); // "thinking…" (only visible to the user)
+  }
   return reply('دستور ناشناخته');
 }

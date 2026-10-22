@@ -32,8 +32,14 @@
     "CH_LIVE_RESULTS": "1516499127842898003",
 
     // Daily analysis → Telegram channel Kamalhaqjo
-    "ANALYSIS_TG_CHAT_ID": "-1003211477952"
+    "ANALYSIS_TG_CHAT_ID": "-1003211477952",
+
+    // Bakartech Journal app (accounts for new Discord members, daily summary, prop scoring)
+    "JOURNAL_URL": "https://bakartech-journal-v2.pages.dev",
+    "JOURNAL_NEW_LEVEL": "Student"
   }
   // Secrets (set once in the Cloudflare dashboard → Settings → Variables and Secrets):
-  //   DISCORD_BOT_TOKEN (required). Optional: GROQ_API_KEY, ANALYSIS_TG_BOT_TOKEN
+  //   DISCORD_BOT_TOKEN (required). Optional: GROQ_API_KEY,
+  //   ANALYSIS_TG_BOT_TOKEN (bot that can post in the Telegram channel — daily analysis + journal summary),
+  //   JOURNAL_ADMIN_PASSWORD (journal app admin password — lets the hub create student accounts)
 }
