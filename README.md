@@ -74,6 +74,7 @@ TELEGRAM_CHAT_ID      = -1001234567890
 DISCORD_WEBHOOK_URL   = https://discord.com/api/webhooks/...
 RUN_NOW               = false
 DISCORD_COMMUNITY_WEBHOOK_URL = https://discord.com/api/webhooks/...   (اختیاری — کانال اسکرین‌شات‌ها)
+DISCORD_JOURNAL_WEBHOOK_URL   = https://discord.com/api/webhooks/...   (اختیاری — کانال ژورنال)
 ```
 
 5. **Deploy** کنید — Railway خودکار `Procfile` را می‌خواند
@@ -83,6 +84,12 @@ DISCORD_COMMUNITY_WEBHOOK_URL = https://discord.com/api/webhooks/...   (اختی
 ## 📸 درخواست روزانهٔ اسکرین‌شات تحلیل
 
 دوشنبه تا جمعه ساعت ۴ عصر تهران (۳:۳۰ ریاض)، یک ساعت قبل از سشن نیویورک، ربات از اعضا می‌خواهد اسکرین‌شات تحلیل روزشان را بفرستند. اگر `DISCORD_COMMUNITY_WEBHOOK_URL` تنظیم نشده باشد، پیام در همان کانال تحلیل روزانه ارسال می‌شود.
+
+---
+
+## 📓 درخواست روزانهٔ گزارش معاملات
+
+دوشنبه تا جمعه ساعت ۱۰:۳۰ شب تهران (۱۰ شب ریاض)، ربات از اعضا می‌خواهد معاملات امروزشان را با قالب ژورنال ثبت کنند. کانال: `DISCORD_JOURNAL_WEBHOOK_URL`، وگرنه کانال اسکرین‌شات‌ها.
 
 ---
 

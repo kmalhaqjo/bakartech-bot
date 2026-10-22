@@ -13,6 +13,8 @@ DISCORD_WEBHOOK = os.environ["DISCORD_WEBHOOK_URL"]
 # Optional: a separate channel where members post their chart screenshots.
 # If not set, the daily request goes to the same channel as the analysis.
 DISCORD_COMMUNITY_WEBHOOK = os.environ.get("DISCORD_COMMUNITY_WEBHOOK_URL") or DISCORD_WEBHOOK
+# Optional: the trading-journal channel for the end-of-day trade report request.
+DISCORD_JOURNAL_WEBHOOK = os.environ.get("DISCORD_JOURNAL_WEBHOOK_URL") or DISCORD_COMMUNITY_WEBHOOK
 
 TIMEZONE = pytz.timezone("Asia/Tehran")
 
@@ -192,32 +194,61 @@ async def daily_analysis_job():
     except Exception as e:
         log.exception(f"Job failed: {e}")
 
+TRADE_REPORT_REQUEST = """📓 **ژورنال امروز | گزارش معاملات**
+سشن نیویورک تمام شد؛ وقت ثبت معاملات است ✍️
+
+👇 همه معاملات امروزتان را با این قالب بفرستید:
+━━━━━━━━━━━━━━
+🎯 نماد:
+📈📉 جهت: خرید / فروش
+🧠 دلیل ورود:
+🛑 حد ضرر:   ✅ حد سود:
+💰 نتیجه: سود / ضرر / سربه‌سر (به R یا درصد)
+📸 اسکرین‌شات ورود و خروج
+🔍 اشتباه یا درس امروز:
+━━━━━━━━━━━━━━
+❗ امروز معامله نکردی؟ بنویس «امروز معامله نداشتم» و دلیلش را بگو؛ صبر هم بخشی از ترید است 🧘
+
+ثبت منظم ژورنال = شرط ارتقا در رتبه‌بندی کامیونیتی ⭐
+Bakartech Academy 👑"""
+
+async def post_to_discord(webhook, text, username):
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(webhook, json={"content": text, "username": username})
+        r.raise_for_status()
+
 async def screenshot_request_job():
     weekday = datetime.now(TIMEZONE).weekday()  # Monday=0 … Sunday=6
     if weekday > 4:
         return
-    text = SCREENSHOT_REQUESTS[weekday]
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(
-                DISCORD_COMMUNITY_WEBHOOK,
-                json={"content": text, "username": "Bakartech Academy 📸"},
-            )
-            r.raise_for_status()
+        await post_to_discord(DISCORD_COMMUNITY_WEBHOOK, SCREENSHOT_REQUESTS[weekday], "Bakartech Academy 📸")
         log.info("Screenshot request sent.")
     except Exception as e:
         log.exception(f"Screenshot request failed: {e}")
+
+async def trade_report_job():
+    if datetime.now(TIMEZONE).weekday() > 4:
+        return
+    try:
+        await post_to_discord(DISCORD_JOURNAL_WEBHOOK, TRADE_REPORT_REQUEST, "Bakartech Journal 📓")
+        log.info("Trade report request sent.")
+    except Exception as e:
+        log.exception(f"Trade report request failed: {e}")
 
 async def main():
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     scheduler.add_job(daily_analysis_job, "cron", hour=8, minute=0)
     # 16:00 Tehran = 15:30 Riyadh, one hour before the New York session opens
     scheduler.add_job(screenshot_request_job, "cron", day_of_week="mon-fri", hour=16, minute=0)
+    # 22:30 Tehran = 22:00 Riyadh, after the main New York session hours
+    scheduler.add_job(trade_report_job, "cron", day_of_week="mon-fri", hour=22, minute=30)
     scheduler.start()
 
     if os.environ.get("RUN_NOW", "false").lower() == "true":
         await daily_analysis_job()
         await screenshot_request_job()
+        await trade_report_job()
 
     while True:
         await asyncio.sleep(3600)
