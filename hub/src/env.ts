@@ -14,6 +14,8 @@ export interface Env {
   CH_LIVE_RESULTS: string; // live-trade results (نتایج-لایف-ترید)
   // Daily analysis: Workers AI by default, Groq if a key is set
   AI: Ai;
+  // Bakartech Journal app database (read-only)
+  JOURNAL_DB?: D1Database;
   GROQ_API_KEY?: string;
   ANALYSIS_TG_BOT_TOKEN?: string;
   ANALYSIS_TG_CHAT_ID?: string;

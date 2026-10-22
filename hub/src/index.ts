@@ -7,6 +7,7 @@
 import { Env, migrate } from './env';
 import { handleInteraction, pollDiscord, registerCommands } from './discord';
 import { runScheduledJobs } from './jobs';
+import { pollJournal } from './journal';
 
 export default {
   async fetch(req: Request, e: Env, ctx: ExecutionContext): Promise<Response> {
@@ -40,5 +41,6 @@ export default {
     await migrate(e);
     ctx.waitUntil(pollDiscord(e).catch((err) => console.error('discord poll', err)));
     ctx.waitUntil(runScheduledJobs(e, event.scheduledTime));
+    ctx.waitUntil(pollJournal(e).catch((err) => console.error('journal', err)));
   },
 };
