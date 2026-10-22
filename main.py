@@ -10,8 +10,71 @@ GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 DISCORD_WEBHOOK = os.environ["DISCORD_WEBHOOK_URL"]
+# Optional: a separate channel where members post their chart screenshots.
+# If not set, the daily request goes to the same channel as the analysis.
+DISCORD_COMMUNITY_WEBHOOK = os.environ.get("DISCORD_COMMUNITY_WEBHOOK_URL") or DISCORD_WEBHOOK
 
 TIMEZONE = pytz.timezone("Asia/Tehran")
+
+# Daily request for members' analysis screenshots (Mon–Fri, before the New York session)
+SCREENSHOT_REQUESTS = [
+    # Monday
+    """📸 **چالش تحلیل امروز | دوشنبه**
+سلام تریدرهای عزیز Bakartech 👋
+
+هفتهٔ جدید شروع شد! قبل از باز شدن سشن نیویورک، **اسکرین‌شات تحلیل امروزتان** را همین‌جا بفرستید 👇
+
+✍️ زیر عکس بنویسید:
+• 🎯 کدام نماد؟ (طلا، داوجونز، …)
+• 📈 جهت شما: خرید یا فروش؟
+• 🧠 دلیل ورود
+• 🛑 حد ضرر و ✅ حد سود
+
+بهترین تحلیل‌ها در لایو بررسی می‌شوند 🔴
+تحلیل کن ← دلیل بنویس ← نتیجه را ثبت کن ← پیشرفت کن 💪""",
+    # Tuesday
+    """📸 **چالش تحلیل امروز | سه‌شنبه**
+دوستان، نوبت شماست! 🔥
+
+**اسکرین‌شات چارت و تحلیل امروزتان** را بفرستید 👇
+• نماد و تایم‌فریم ⏱️
+• سطح‌های مهم حمایت و مقاومت 📊
+• پلن ورود، حد ضرر و حد سود 🎯
+
+یادت باشه: ترید بدون پلن، قمار است ❌
+VIP امپراطوری تریدرها 👑""",
+    # Wednesday
+    """📸 **چالش تحلیل امروز | چهارشنبه**
+وسط هفته‌ایم؛ وقت ثبت تحلیل! 📈
+
+**اسکرین‌شات تحلیل امروزتان** را با این سه خط بفرستید 👇
+1️⃣ چه دیدی؟
+2️⃣ چه پلنی داری؟
+3️⃣ اگر اشتباه بود، کجا خارج می‌شوی؟ 🛑
+
+اشتباه کردن عیب نیست؛ ثبت نکردنش عیب است 💎""",
+    # Thursday
+    """📸 **چالش تحلیل امروز | پنجشنبه**
+سلام قهرمان‌ها 🏆
+
+**اسکرین‌شات تحلیل امروزتان** را قبل از سشن نیویورک بگذارید 👇
+• نماد و جهت 📈📉
+• دلیل ورود 🧠
+• ریسک چند درصد از حساب؟ ⚖️
+
+تحلیل‌های منظم و دقیق = قدم بعدی در رتبه‌بندی کامیونیتی ⭐""",
+    # Friday
+    """📸 **چالش تحلیل امروز | جمعه + مرور هفته**
+آخرین روز معاملاتی هفته! 🔚
+
+👇 دو چیز بفرستید:
+1️⃣ **اسکرین‌شات تحلیل امروز** با حد ضرر و حد سود
+2️⃣ **بهترین و بدترین معاملهٔ این هفته** و یک درسی که گرفتی 📚
+
+کسی که هر هفته خودش را بررسی کند، هر هفته بهتر می‌شود 💪
+Bakartech Academy 👑""",
+]
+
 
 MARKETS = {
     "XAUUSD طلا": "GC=F",
@@ -129,13 +192,32 @@ async def daily_analysis_job():
     except Exception as e:
         log.exception(f"Job failed: {e}")
 
+async def screenshot_request_job():
+    weekday = datetime.now(TIMEZONE).weekday()  # Monday=0 … Sunday=6
+    if weekday > 4:
+        return
+    text = SCREENSHOT_REQUESTS[weekday]
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                DISCORD_COMMUNITY_WEBHOOK,
+                json={"content": text, "username": "Bakartech Academy 📸"},
+            )
+            r.raise_for_status()
+        log.info("Screenshot request sent.")
+    except Exception as e:
+        log.exception(f"Screenshot request failed: {e}")
+
 async def main():
     scheduler = AsyncIOScheduler(timezone=TIMEZONE)
     scheduler.add_job(daily_analysis_job, "cron", hour=8, minute=0)
+    # 16:00 Tehran = 15:30 Riyadh, one hour before the New York session opens
+    scheduler.add_job(screenshot_request_job, "cron", day_of_week="mon-fri", hour=16, minute=0)
     scheduler.start()
 
     if os.environ.get("RUN_NOW", "false").lower() == "true":
         await daily_analysis_job()
+        await screenshot_request_job()
 
     while True:
         await asyncio.sleep(3600)

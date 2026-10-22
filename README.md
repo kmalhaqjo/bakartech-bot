@@ -73,9 +73,16 @@ TELEGRAM_BOT_TOKEN    = 7255...
 TELEGRAM_CHAT_ID      = -1001234567890
 DISCORD_WEBHOOK_URL   = https://discord.com/api/webhooks/...
 RUN_NOW               = false
+DISCORD_COMMUNITY_WEBHOOK_URL = https://discord.com/api/webhooks/...   (اختیاری — کانال اسکرین‌شات‌ها)
 ```
 
 5. **Deploy** کنید — Railway خودکار `Procfile` را می‌خواند
+
+---
+
+## 📸 درخواست روزانهٔ اسکرین‌شات تحلیل
+
+دوشنبه تا جمعه ساعت ۴ عصر تهران (۳:۳۰ ریاض)، یک ساعت قبل از سشن نیویورک، ربات از اعضا می‌خواهد اسکرین‌شات تحلیل روزشان را بفرستند. اگر `DISCORD_COMMUNITY_WEBHOOK_URL` تنظیم نشده باشد، پیام در همان کانال تحلیل روزانه ارسال می‌شود.
 
 ---
 
