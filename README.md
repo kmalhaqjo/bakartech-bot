@@ -93,6 +93,21 @@ DISCORD_JOURNAL_WEBHOOK_URL   = https://discord.com/api/webhooks/...   (اختی
 
 ---
 
+## 🎯 سیستم دعوت و رتبه (Referral)
+
+- هر عضو با دستور `/invite` لینک دعوت اختصاصی می‌گیرد
+- دعوت فقط وقتی حساب می‌شود که نفر جدید **تایید عضویت (Verified)** بگیرد و در سرور بماند
+- رتبه‌ها خودکار داده می‌شوند: 🎯 شکارچی (۳ دعوت) ← 🦅 سفیر (۱۰) ← 👑 الیت (۲۵)
+- `/my-invites` آمار شخصی، `/top-inviters` جدول برترین‌ها
+- هر جمعه ساعت ۸ شب تهران جدول هفتگی در چت-عمومی ارسال می‌شود
+
+**فعال‌سازی در Railway:**
+1. متغیر `DISCORD_BOT_TOKEN` = توکن ربات «Bakartech Academy Bot» (Developer Portal ← Bot ← Reset Token)
+2. در Developer Portal ← Bot: گزینه‌های **Server Members Intent** را روشن کنید
+3. یک **Volume** با مسیر `/data` به سرویس اضافه کنید تا آمار دعوت‌ها بعد از هر Deploy پاک نشود
+
+---
+
 ## تست فوری
 
 برای تست بدون صبر تا ۸ صبح، در Railway متغیر `RUN_NOW=true` را موقتاً تنظیم کنید، سپس بعد از تست به `false` برگردانید.

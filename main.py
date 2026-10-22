@@ -254,6 +254,14 @@ async def main():
         await screenshot_request_job()
         await trade_report_job()
 
+    # Referral & rank system (runs only when DISCORD_BOT_TOKEN is set).
+    # Any crash there is logged and never stops the daily posts above.
+    try:
+        from referral import run_referral_bot
+        await run_referral_bot()
+    except Exception as e:
+        log.exception(f"Referral bot stopped: {e}")
+
     while True:
         await asyncio.sleep(3600)
 
