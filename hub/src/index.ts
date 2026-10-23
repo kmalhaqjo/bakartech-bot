@@ -8,7 +8,7 @@ import { Env, migrate } from './env';
 import { handleInteraction, pollDiscord, registerCommands } from './discord';
 import { runScheduledJobs } from './jobs';
 import { pollJournal } from './journal';
-import { processOnboarding } from './onboard';
+import { processOnboarding, startActiveScan, stepActiveScan } from './onboard';
 import { syncCrm } from './crm';
 
 export default {
@@ -49,6 +49,14 @@ export default {
     ctx.waitUntil(runScheduledJobs(e, event.scheduledTime));
     ctx.waitUntil(pollJournal(e).catch((err) => console.error('journal', err)));
     ctx.waitUntil(processOnboarding(e).catch((err) => console.error('onboarding', err)));
+    // one-time (Oct 2026): journal accounts for everyone who was active on Discord in the last 7 days
+    ctx.waitUntil(
+      (async () => {
+        const { kvGet } = await import('./env');
+        if (!(await kvGet(e, 'active_scan'))) await startActiveScan(e, 7);
+        if (new Date(event.scheduledTime).getUTCMinutes() % 5 !== 2) await stepActiveScan(e);
+      })().catch((err) => console.error('active scan', err))
+    );
     if (new Date(event.scheduledTime).getUTCMinutes() % 5 === 2) ctx.waitUntil(syncCrm(e).catch((err) => console.error('crm', err)));
   },
 };

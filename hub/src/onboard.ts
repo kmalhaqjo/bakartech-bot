@@ -6,7 +6,7 @@
  * Accounts are created through the journal app's own admin API (POST /api/admin/students), so its password
  * hashing and rules stay exactly as they are. Needs the secret JOURNAL_ADMIN_PASSWORD.
  */
-import { Env, FOOTER } from './env';
+import { Env, FOOTER, kvGet, kvSet } from './env';
 import { dapi } from './discord';
 
 const ALPHA = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -154,3 +154,48 @@ export async function processOnboarding(e: Env) {
   }
 }
 
+
+/**
+ * Finds members who wrote anything in the server during the last `days` days and queues them for a journal
+ * account + DM (people who already have an account are skipped by INSERT OR IGNORE).
+ * Runs in small steps across cron runs (few Discord calls per run). Start it with startActiveScan().
+ */
+export async function startActiveScan(e: Env, days = 7) {
+  await kvSet(e, 'active_scan', JSON.stringify({ since: Date.now() - days * 86400_000, channels: null, idx: 0, cursor: null, authors: {} }));
+}
+
+export async function stepActiveScan(e: Env) {
+  const raw = await kvGet(e, 'active_scan');
+  if (!raw || !e.DISCORD_BOT_TOKEN) return;
+  const st = JSON.parse(raw);
+  if (st.done) return;
+  if (!st.channels) {
+    const chs: any[] = await dapi(e, 'GET', `/guilds/${e.DISCORD_GUILD_ID}/channels`);
+    st.channels = chs.filter((c) => c.type === 0 || c.type === 5).map((c) => c.id);
+  }
+  // Discord snowflake for the start of the window
+  const sinceSnow = String((BigInt(st.since) - 1420070400000n) << 22n);
+  let calls = 0;
+  while (st.idx < st.channels.length && calls < 6) {
+    const ch = st.channels[st.idx];
+    calls++;
+    // "after" returns up to 100 messages after the cursor; walk forward until the channel is exhausted
+    const msgs: any[] = await dapi(e, 'GET', `/channels/${ch}/messages?limit=100&after=${st.cursor || sinceSnow}`).catch(() => []);
+    for (const m of msgs) if (!m.author?.bot && !m.webhook_id) st.authors[m.author.id] = m.author.global_name || m.author.username;
+    if (msgs.length === 100) st.cursor = msgs.reduce((x, m) => (BigInt(m.id) > BigInt(x) ? m.id : x), msgs[0].id);
+    else {
+      st.idx++;
+      st.cursor = null;
+    }
+  }
+  if (st.idx >= st.channels.length) {
+    const ids = Object.keys(st.authors);
+    await ensureOnboardTables(e);
+    if (ids.length)
+      await e.DB.batch(ids.map((id) => e.DB.prepare(`INSERT OR IGNORE INTO j_accounts(discord_id,name,status) VALUES(?,?,'queued')`).bind(id, String(st.authors[id]).slice(0, 40))));
+    st.done = true;
+    st.found = ids.length;
+    st.authors = {};
+  }
+  await kvSet(e, 'active_scan', JSON.stringify(st));
+}
