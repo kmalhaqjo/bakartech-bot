@@ -338,6 +338,35 @@ async function push(e: Env) {
   }
 }
 
+/** 💰 revenue per package (from the Telegram bot payments) → Notion «💰 درآمد پکیج‌ها» */
+async function pushRevenue(e: Env) {
+  if (!e.BOT_DB || !e.NOTION_REVENUE_DB) return;
+  const { results } = await e.BOT_DB.prepare(
+    `SELECT p.id, p.title, p.price_international price,
+       (SELECT COUNT(*) FROM payments x WHERE x.package_id=p.id AND x.status='approved') sold,
+       (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.package_id=p.id AND x.status='approved') revenue,
+       (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.package_id=p.id AND x.status='pending') pending
+     FROM packages p WHERE p.is_active=1 OR EXISTS (SELECT 1 FROM payments x WHERE x.package_id=p.id)`
+  ).all<any>();
+  const rows = results.map((r: any) => ({ key: r.id, title: r.title, sold: r.sold, revenue: r.revenue, pending: r.pending, price: r.price }));
+  rows.push({
+    key: 'total', title: '💰 مجموع', price: null,
+    sold: rows.reduce((a, r) => a + r.sold, 0), revenue: rows.reduce((a, r) => a + r.revenue, 0), pending: rows.reduce((a, r) => a + r.pending, 0),
+  });
+  for (const r of rows) {
+    const props = { 'پکیج': T(r.title), 'فروش': N(r.sold), 'درآمد': N(r.revenue), 'در انتظار': N(r.pending), 'قیمت': N(r.price) };
+    const hash = JSON.stringify(props);
+    const [page, old] = [await kvGet(e, `rev_page:${r.key}`), await kvGet(e, `rev_hash:${r.key}`)];
+    if (old === hash && page) continue;
+    if (page) await notion(e, 'PATCH', `/pages/${page}`, { properties: props });
+    else {
+      const p = await notion(e, 'POST', '/pages', { parent: { database_id: e.NOTION_REVENUE_DB }, properties: props });
+      await kvSet(e, `rev_page:${r.key}`, p.id);
+    }
+    await kvSet(e, `rev_hash:${r.key}`, hash);
+  }
+}
+
 /** every 5 minutes from cron */
 export async function syncCrm(e: Env) {
   if (!e.JOURNAL_DB) return;
@@ -346,7 +375,10 @@ export async function syncCrm(e: Env) {
     await ensureTables(e);
     await collect(e);
     await ranks(e);
-    if (e.NOTION_TOKEN && e.NOTION_STUDENTS_DB) await push(e);
+    if (e.NOTION_TOKEN && e.NOTION_STUDENTS_DB) {
+      await push(e);
+      await pushRevenue(e).catch((err) => console.error('revenue', err));
+    }
     await kvSet(e, 'crm_last', JSON.stringify({ at: started, ok: true, notion: !!e.NOTION_TOKEN }));
   } catch (err: any) {
     await kvSet(e, 'crm_last', JSON.stringify({ at: started, ok: false, error: String(err?.message || err).slice(0, 300) }));

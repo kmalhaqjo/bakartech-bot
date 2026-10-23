@@ -33,7 +33,8 @@ export interface Env {
   NOTION_TOKEN?: string;           // secret — Notion integration token
   NOTION_STUDENTS_DB?: string;
   NOTION_ACTIVITIES_DB?: string;
-  NOTION_REWARDS_DB?: string;     // Telegram chat(s) for the daily journal summary (comma separated); default ANALYSIS_TG_CHAT_ID
+  NOTION_REWARDS_DB?: string;
+  NOTION_REVENUE_DB?: string;     // Telegram chat(s) for the daily journal summary (comma separated); default ANALYSIS_TG_CHAT_ID
 }
 
 const SCHEMA = [

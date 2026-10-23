@@ -46,7 +46,8 @@
     // Notion «Bakartech Student System» (Command Center)
     "NOTION_STUDENTS_DB": "a3ec9d21c55f46d0919df4345a6bd048",
     "NOTION_ACTIVITIES_DB": "822cbf6551e24353bd467c8e49bde1e3",
-    "NOTION_REWARDS_DB": "25d29d64a6c7484e9c800d9f25cec140"
+    "NOTION_REWARDS_DB": "25d29d64a6c7484e9c800d9f25cec140",
+    "NOTION_REVENUE_DB": "b0a93cb0b89f4250bfc251cd0050f70b"
   }
   // Secrets (set once in the Cloudflare dashboard → Settings → Variables and Secrets):
   //   DISCORD_BOT_TOKEN (required). Optional: GROQ_API_KEY,
