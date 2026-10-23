@@ -63,9 +63,38 @@ async function calendar(e: Env): Promise<Ev[]> {
     const c = JSON.parse(cached);
     if (c.day === today) return c.events;
   }
-  const r = await fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json', { headers: { 'user-agent': 'Mozilla/5.0 BakartechHub' } });
-  if (!r.ok) throw new Error('calendar ' + r.status);
-  const events: Ev[] = await r.json();
+  let events: Ev[] | null = null;
+  const errors: string[] = [];
+  // 1) TradingView economic calendar (public JSON)
+  try {
+    const from = new Date(Date.now() - 2 * 86400_000).toISOString(), to = new Date(Date.now() + 8 * 86400_000).toISOString();
+    const r = await fetch(`https://economic-calendar.tradingview.com/events?from=${from}&to=${to}&countries=US,EU,GB,JP,CA,AU,NZ,CH,CN`, {
+      headers: { origin: 'https://www.tradingview.com', referer: 'https://www.tradingview.com/', 'user-agent': 'Mozilla/5.0' },
+    });
+    if (!r.ok) throw new Error('tv ' + r.status);
+    const j: any = await r.json();
+    const imp = (n: number) => (n >= 1 ? 'High' : n === 0 ? 'Medium' : 'Low');
+    events = (j.result || []).map((x: any) => ({
+      title: x.title, country: x.currency || x.country, date: x.date, forecast: x.forecast != null ? `${x.forecast}${x.unit || ''}` : '',
+      previous: x.previous != null ? `${x.previous}${x.unit || ''}` : '', impact: /holiday/i.test(x.title) ? 'Holiday' : imp(Number(x.importance)),
+    }));
+  } catch (err: any) {
+    errors.push(String(err?.message || err));
+  }
+  // 2) ForexFactory weekly JSON
+  if (!events?.length) {
+    try {
+      const r = await fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json', { headers: { 'user-agent': 'Mozilla/5.0 BakartechHub' } });
+      if (!r.ok) throw new Error('ff ' + r.status);
+      events = await r.json();
+    } catch (err: any) {
+      errors.push(String(err?.message || err));
+    }
+  }
+  if (!events?.length) {
+    await kvSet(e, 'ff_err', JSON.stringify({ at: new Date().toISOString(), errors }));
+    throw new Error('calendar unavailable: ' + errors.join(' | '));
+  }
   await kvSet(e, 'ff_week', JSON.stringify({ day: today, events }));
   return events;
 }
@@ -207,9 +236,19 @@ async function postQuiz(e: Env, ms: number) {
     const desc = `**${j.q}**\n\n${j.options.map((o: string, i: number) => `${L[i]} ${o}`).join('\n')}\n\n👇 جوابتان را با ری‌اکشن یا کامنت بدهید، بعد جواب را باز کنید:\n||✅ جواب درست: ${L[j.answer]} — ${j.why}||`;
     await sendDiscord(e, CH.qa, '', embed(`❓ سؤال روز | ${topic}`, desc, COLORS.green));
   } catch {
-    console.error('quiz parse', raw);
+    const q = pick(QUIZ, ms);
+    const L = ['🅰️', '🅱️', '©️', '🇩'];
+    await sendDiscord(e, CH.qa, '', embed('❓ سؤال روز', `**${q[0]}**\n\n${(q[1] as string[]).map((o, i) => `${L[i]} ${o}`).join('\n')}\n\n👇 جوابتان را بنویسید، بعد جواب را باز کنید:\n||✅ جواب درست: ${L[q[2] as number]} — ${q[3]}||`, COLORS.green));
   }
 }
+const QUIZ: [string, string[], number, string][] = [
+  ['اگر ریسک هر معامله ۱٪ و حساب ۱۰۰۰ دلار باشد، حداکثر ضرر هر معامله چقدر است؟', ['۱ دلار', '۱۰ دلار', '۱۰۰ دلار', '۵۰ دلار'], 1, '۱٪ از ۱۰۰۰ دلار = ۱۰ دلار'],
+  ['بهترین زمان معامله برای US30 کدام سشن است؟', ['سشن آسیا', 'سشن سیدنی', 'سشن نیویورک', 'آخر هفته'], 2, 'بیشترین حجم و حرکت داوجونز در سشن نیویورک است'],
+  ['بعد از دو استاپ پشت سر هم طبق قانون Bakartech چه باید کرد؟', ['حجم را دو برابر کنیم', 'ترید آن روز تمام', 'بدون استاپ معامله کنیم', 'نماد را عوض کنیم'], 1, 'قانون طلایی: بعد از دو استاپ، ترید تمام'],
+  ['نسبت ریسک به ریوارد ۱ به ۲ یعنی چه؟', ['سود دو برابر ضرر احتمالی', 'ضرر دو برابر سود', 'دو معامله در روز', 'دو حد ضرر'], 0, 'برای هر ۱ واحد ریسک، ۲ واحد سود هدف است'],
+  ['دلار قوی معمولاً چه اثری روی طلا دارد؟', ['طلا بالا می‌رود', 'طلا پایین می‌آید', 'اثری ندارد', 'طلا تعطیل می‌شود'], 1, 'طلا با دلار قیمت‌گذاری می‌شود؛ دلار قوی معمولاً طلا را پایین می‌آورد'],
+  ['ترید انتقامی یعنی چه؟', ['معامله طبق پلن', 'معامله برای جبران فوری ضرر', 'معامله در سشن نیویورک', 'معامله با حد ضرر'], 1, 'ورود احساسی برای جبران ضرر؛ یکی از خطرناک‌ترین اشتباهات'],
+];
 
 // ------------------------------------------------------------------ community / weekly
 const MORNING = [
