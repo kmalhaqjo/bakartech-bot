@@ -1,6 +1,6 @@
 import { Env, TIERS, tierFor, nextTier, fa, FOOTER, kvGet, kvSet } from './env';
 import { queueNewMembers, ensureAccount, accountEmbed } from './onboard';
-import { propStats, statsText } from './journal';
+import { propStats, statsText, announcePropWinner } from './journal';
 
 const API = 'https://discord.com/api/v10';
 
@@ -190,9 +190,20 @@ export const COMMANDS = [
   { name: 'my-journal', description: 'لینک، نام کاربری و رمز ژورنال Bakartech خودت را بگیر 📓', type: 1 },
   {
     name: 'my-stats',
-    description: 'کارنامهٔ ۳۰ روزهٔ ژورنالت و فاصله‌ات تا حساب پراپ 📊',
+    description: 'کارنامهٔ ۳ ماههٔ ژورنالت و پیشرفتت در مسیر ۳ ماهه 📊',
     type: 1,
     options: [{ type: 3, name: 'code', description: 'کد ژورنال (اگر حسابت را قبلاً گرفته‌ای لازم نیست)', required: false }],
+  },
+  {
+    name: 'prop-announce',
+    description: 'فقط استاد: اعلام عمومی تریدر انتخاب‌شده برای همکاری 👑',
+    type: 1,
+    default_member_permissions: '8', // administrators only
+    dm_permission: false,
+    options: [
+      { type: 6, name: 'trader', description: 'تریدر انتخاب‌شده', required: true },
+      { type: 3, name: 'note', description: 'یک جملهٔ کوتاه (اختیاری)', required: false },
+    ],
   },
 ];
 
@@ -237,7 +248,7 @@ async function myStats(e: Env, i: any) {
   if (!code) return followUp(e, i, { content: '📓 هنوز حساب ژورنال نداری. با دستور `/my-journal` بگیرش، یا کد ژورنالت را در همین دستور بنویس 👈' });
   const today = new Date(Date.now() + 210 * 60_000).toISOString().slice(0, 10);
   const s = (await propStats(e, today)).find((x) => String(x.code).toLowerCase() === code.toLowerCase());
-  if (!s) return followUp(e, i, { content: `📭 در ۳۰ روز اخیر ژورنالی با کد \`${code}\` ثبت نشده. از امروز شروع کن ✍️` });
+  if (!s) return followUp(e, i, { content: `📭 در ۳ ماه اخیر ژورنالی با کد \`${code}\` ثبت نشده. از امروز شروع کن ✍️` });
   return followUp(e, i, { content: statsText(s) });
 }
 
@@ -282,6 +293,18 @@ export async function handleInteraction(e: Env, req: Request, ctx?: ExecutionCon
     );
   }
   if (name === 'top-inviters') return reply('', false, [await leaderboardEmbed(e, '🏆 بهترین دعوت‌کننده‌های آکادمی')]);
+  if (name === 'prop-announce') {
+    const perms = BigInt(i.member?.permissions || '0');
+    if ((perms & 8n) !== 8n) return reply('⛔ این دستور فقط برای استاد است.');
+    const opts = i.data.options || [];
+    const target = opts.find((o: any) => o.name === 'trader')?.value;
+    const note = opts.find((o: any) => o.name === 'note')?.value;
+    const user = i.data.resolved?.users?.[target];
+    if (!user) return reply('تریدر پیدا نشد.');
+    const work = announcePropWinner(e, user, note).catch((err) => console.error('prop-announce', err));
+    if (ctx) ctx.waitUntil(work);
+    return reply(`✅ اعلام انتخاب **${user.global_name || user.username}** در دیسکورد و تلگرام منتشر می‌شود 👑`);
+  }
   if (name === 'my-journal' || name === 'my-stats') {
     const work = (name === 'my-journal' ? myJournal(e, i) : myStats(e, i)).catch((err) => console.error(name, err));
     if (ctx) ctx.waitUntil(work);

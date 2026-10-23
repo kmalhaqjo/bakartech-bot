@@ -3,7 +3,7 @@
  *  • Every new journal → Discord «📓-ژورنال-شاگردان» (public, read-only for members) + an automatic coach reply
  *  • Teacher approve/reject → the Discord card updates
  *  • Daily summary of today's journals → Telegram channel + Discord
- *  • Prop-firm candidate scoring (last 30 days) → weekly public top list + private staff report
+ *  • Weekly public discipline leaderboard + private 3-month review list for the teacher (no promises)
  * Journals are only READ from the journal database. New student accounts are created through the
  * journal app's own admin API (see onboard.ts), never by writing to its tables.
  */
@@ -11,7 +11,7 @@ import { Env, kvGet, kvSet, fa, FOOTER } from './env';
 import { dapi, sendDiscord } from './discord';
 
 const CHANNEL_NAME = '📓-ژورنال-شاگردان';
-const STAFF_CHANNEL_NAME = '👑-کاندید-پراپ';
+const STAFF_CHANNEL_NAME = '👑-بررسی-همکاری';
 const VIP_CHANNEL_SHORT = '3615555387'; // t.me/c/<id>/<message> for the VIP Telegram channel
 const DISCORD_INVITE = 'https://discord.gg/kSbpG2hQCu';
 
@@ -52,7 +52,7 @@ async function ensureChannel(e: Env, kvKey: string, name: string, catRe: RegExp,
 export const journalChannel = (e: Env) =>
   ensureChannel(e, 'journal_channel', CHANNEL_NAME, /TRADING JOURNAL/i, 'ژورنال روزانهٔ شاگردان Bakartech — از سیستم ژورنال‌نویسی، خودکار ✍️');
 const staffChannel = (e: Env) =>
-  ensureChannel(e, 'staff_prop_channel', STAFF_CHANNEL_NAME, /STAFF/i, 'گزارش خصوصی کاندیدهای حساب پراپ — فقط استاد و ادمین‌ها 🔒', true);
+  ensureChannel(e, 'staff_prop_channel', STAFF_CHANNEL_NAME, /STAFF/i, 'فهرست خصوصی بررسی همکاری — فقط استاد و ادمین‌ها 🔒', true);
 
 /** Opens the journal channel to everyone (read + react), members can't post; the bot keeps full rights. Runs once. */
 async function openJournalChannel(e: Env, channel: string) {
@@ -190,7 +190,7 @@ export function coachFeedback(j: any): string {
   if (has(j.lesson)) lines.push('', `📌 درس فردایت یادت نرود: «${clip(j.lesson, 120)}»`);
   const close =
     score >= 85
-      ? pick(['همین مسیر را ادامه بده؛ تیم امپراطوری تریدرها با آدم‌هایی مثل تو ساخته می‌شود 🚀💪', 'ادامه بده؛ نظم امروز، حساب پراپ فرداست 👑🚀'], seed)
+      ? pick(['همین مسیر را ادامه بده؛ تیم امپراطوری تریدرها با آدم‌هایی مثل تو ساخته می‌شود 🚀💪', 'ادامه بده؛ نظم امروز، موفقیت فرداست 👑🚀'], seed)
       : pick(['فردا یک قدم بهتر؛ ما کنارت هستیم 💪', 'ژورنال نوشتن یعنی جدی بودن؛ ادامه بده 🚀'], seed);
   lines.push('', `⭐ امتیاز ${fa(score)} از ۱۰۰. ${close}`, '— کمال حقجو | Bakartech Academy 👑');
   return lines.join('\n').slice(0, 1990);
@@ -335,7 +335,7 @@ export async function dailyJournalSummary(e: Env, date: string) {
     ...top.map((p, i) => `${medals[i]} ${esc(p.name)} — ${esc(p.symbols)} · ${money(p.pnl)} · ⭐${fa(p.score)}`),
     star ? `\n💎 <b>ستارهٔ نظم امروز:</b> ${esc(star.name)} — با استاپ‌لاس، طبق پلن، بدون اورترید 👑` : '',
     '',
-    `📌 در Bakartech سود یک روز مهم نیست؛ <b>نظم هر روز</b> مهم است. تریدرهایی که با یک نماد، یک سشن و مدیریت سرمایهٔ درست ژورنال می‌نویسند، برای <b>همکاری و حساب پراپ</b> انتخاب می‌شوند 🦅`,
+    `📌 در Bakartech سود یک روز مهم نیست؛ <b>نظم هر روز</b> مهم است. ژورنال منظم یعنی تریدر جدی 🦅`,
     '',
     `💬 ژورنال کامل و نظر استاد در دیسکورد: ${DISCORD_INVITE}`,
     `#BakartechJournal`,
@@ -360,15 +360,22 @@ export async function dailyJournalSummary(e: Env, date: string) {
   });
 }
 
-// ---------------------------------------------------------------- prop-firm candidate scoring
-export const PROP_RULES = { minDays: 10, discipline: 85, winRate: 55, focus: 80, riskOk: 70 };
+// ---------------------------------------------------------------- collaboration / prop review
+// Policy: no promises. A trader becomes "ready for review" only after at least 3 months of regular journaling
+// with good discipline; the academy then reviews the full record (and personal situation, e.g. country) and decides.
+// Selected traders are announced manually by the teacher with /prop-announce.
+export const PROP_RULES = { months: 3, minDays: 40, discipline: 85, winRate: 55, focus: 80, riskOk: 70 };
+const WINDOW_DAYS = 90;
+export const NO_PROMISE =
+  '📌 بعد از حداقل **۳ ماه ژورنال منظم**، کارنامه بررسی می‌شود. **تصمیم نهایی فقط با آکادمی است** و به شرایط هر شخص (از جمله کشور و قوانین پراپ‌ها) بستگی دارد؛ این بررسی وعدهٔ حساب پراپ نیست. همکاری‌ها فقط توسط استاد اعلام می‌شود 👑';
 
 export type Stats = {
   student_id: string; name: string; code: string; days: number; wins: number; losses: number; winRate: number; net: number;
-  discipline: number; focus: number; mainSymbol: string; riskOk: number; avgRR: number; profitFactor: number; total: number; candidate: boolean; missing: string[];
+  discipline: number; focus: number; mainSymbol: string; riskOk: number; avgRR: number; profitFactor: number; total: number;
+  historyDays: number; ready: boolean; missing: string[];
 };
 
-export function statsFor(entries: any[]): Stats {
+export function statsFor(entries: any[], firstDate?: string, today?: string): Stats {
   const j0 = entries[0];
   const days = new Set(entries.map((j) => j.date)).size;
   const wins = entries.filter((j) => Number(j.pnl) > 0).length;
@@ -387,8 +394,8 @@ export function statsFor(entries: any[]): Stats {
   );
   const symCount = new Map<string, number>();
   entries.forEach((j) => {
-    const s = String(j.symbol || '').toUpperCase().trim();
-    symCount.set(s, (symCount.get(s) || 0) + 1);
+    const sym = String(j.symbol || '').toUpperCase().trim();
+    symCount.set(sym, (symCount.get(sym) || 0) + 1);
   });
   const [mainSymbol, mainN] = [...symCount.entries()].sort((a, b) => b[1] - a[1])[0] || ['—', 0];
   const focus = Math.round((mainN / entries.length) * 100);
@@ -396,11 +403,15 @@ export function statsFor(entries: any[]): Stats {
   const rrs = entries.map((j) => Number(j.rr)).filter((x) => x > 0);
   const avgRR = rrs.length ? Math.round((rrs.reduce((a, b) => a + b, 0) / rrs.length) * 10) / 10 : 0;
   const profitFactor = gl ? Math.round((gw / gl) * 10) / 10 : gw ? 99 : 0;
-  const regularity = Math.min(days / 15, 1) * 100;
+  const regularity = Math.min(days / PROP_RULES.minDays, 1) * 100;
   const total = Math.round(discipline * 0.35 + winRate * 0.25 + focus * 0.15 + riskOk * 0.15 + regularity * 0.1);
+  const first = firstDate || entries.map((j) => j.date).sort()[0];
+  const historyDays = today && first ? Math.max(0, Math.round((Date.parse(today) - Date.parse(first)) / 86400_000)) : 0;
   const R = PROP_RULES;
   const missing: string[] = [];
-  if (days < R.minDays) missing.push(`حداقل ${fa(R.minDays)} روز ژورنال (الان ${fa(days)})`);
+  const monthsDone = Math.floor(historyDays / 30);
+  if (historyDays < R.months * 30) missing.push(`سابقهٔ ژورنال ${fa(R.months)} ماه (الان ${fa(monthsDone)} ماه و ${fa(historyDays % 30)} روز)`);
+  if (days < R.minDays) missing.push(`حداقل ${fa(R.minDays)} روز ژورنال در ۳ ماه اخیر (الان ${fa(days)})`);
   if (discipline < R.discipline) missing.push(`نظم ${fa(R.discipline)}٪ (الان ${fa(discipline)}٪)`);
   if (winRate < R.winRate) missing.push(`وین‌ریت ${fa(R.winRate)}٪ (الان ${fa(winRate)}٪)`);
   if (focus < R.focus) missing.push(`تمرکز روی یک نماد ${fa(R.focus)}٪ (الان ${fa(focus)}٪)`);
@@ -408,45 +419,56 @@ export function statsFor(entries: any[]): Stats {
   if (net <= 0) missing.push('نتیجهٔ خالص مثبت');
   return {
     student_id: j0.student_id, name: j0.student_name, code: j0.student_code, days, wins, losses, winRate, net, discipline, focus, mainSymbol,
-    riskOk, avgRR, profitFactor, total, candidate: missing.length === 0, missing,
+    riskOk, avgRR, profitFactor, total, historyDays, ready: missing.length === 0, missing,
   };
 }
 
-export async function propStats(e: Env, todayDate: string): Promise<Stats[]> {
-  const from = new Date(Date.parse(todayDate + 'T00:00:00Z') - 30 * 86400_000).toISOString().slice(0, 10);
-  const list = await studentEntries(e, from, todayDate);
+export async function propStats(e: Env, todayDate: string, windowDays = WINDOW_DAYS): Promise<Stats[]> {
+  const from = new Date(Date.parse(todayDate + 'T00:00:00Z') - windowDays * 86400_000).toISOString().slice(0, 10);
+  const [list, firsts] = await Promise.all([
+    studentEntries(e, from, todayDate),
+    e.JOURNAL_DB!.prepare(`SELECT student_id, MIN(date) AS first FROM journals GROUP BY student_id`).all<any>(),
+  ]);
+  const firstBy = new Map<string, string>(firsts.results.map((r: any) => [r.student_id, r.first]));
   const by = new Map<string, any[]>();
   list.forEach((j: any) => by.set(j.student_id, [...(by.get(j.student_id) || []), j]));
-  return [...by.values()].map(statsFor).sort((a, b) => b.total - a.total);
+  return [...by.values()].map((es) => statsFor(es, firstBy.get(es[0].student_id), todayDate)).sort((a, b) => b.total - a.total);
 }
 
 export function statsText(s: Stats) {
+  const R = PROP_RULES;
+  const months = Math.min(R.months, Math.floor(s.historyDays / 30));
+  const bar = '🟩'.repeat(months) + '⬜'.repeat(R.months - months);
+  const quality = s.missing.filter((m) => !m.startsWith('سابقه'));
   return [
-    `📊 **کارنامهٔ ۳۰ روز اخیر — ${s.name}**`,
+    `📊 **کارنامهٔ ۳ ماه اخیر — ${s.name}**`,
     `📅 روزهای ژورنال: **${fa(s.days)}**  |  🎯 نماد اصلی: **${s.mainSymbol}** (${fa(s.focus)}٪)`,
     `✅ وین‌ریت: **${fa(s.winRate)}٪** (${fa(s.wins)} سود / ${fa(s.losses)} ضرر)  |  💰 نتیجهٔ خالص: **${money(s.net)}**`,
     `🧭 نظم (استاپ، پلن، بدون اورترید و انتقامی، داخل سشن، اخبار): **${fa(s.discipline)}٪**`,
     `⚖️ مدیریت ریسک درست: **${fa(s.riskOk)}٪**  |  📐 میانگین R:R: **${fa(s.avgRR)}**`,
     `⭐ امتیاز کلی: **${fa(s.total)}/۱۰۰**`,
     '',
-    s.candidate
-      ? '👑 **تبریک! همهٔ شرط‌های کاندید حساب پراپ را داری.** استاد کارنامه‌ات را بررسی می‌کند 🚀'
-      : `🎯 **تا کاندید حساب پراپ شدن:**\n${s.missing.map((m) => `• ${m}`).join('\n')}`,
+    `⏳ **مسیر ۳ ماهه:** ${bar}  (${fa(months)} از ${fa(R.months)} ماه)`,
+    s.ready
+      ? '✅ کارنامه‌ات شرایط **بررسی** را دارد. ادامه بده؛ تیم آکادمی کارنامه‌ات را می‌بیند 👀'
+      : quality.length
+        ? `🎯 **برای کارنامهٔ قوی‌تر:**\n${quality.map((m) => `• ${m}`).join('\n')}`
+        : '💪 کیفیت کارنامه‌ات عالی است؛ فقط با نظم ادامه بده تا ۳ ماه کامل شود.',
+    '',
+    NO_PROMISE,
   ].join('\n');
 }
 
+/** Friday: public discipline leaderboard (no promises) + private review list for the teacher */
 export async function weeklyPropReport(e: Env, todayDate: string) {
   if (!e.JOURNAL_DB) return;
-  const all = await propStats(e, todayDate);
-  const ranked = all.filter((s) => s.days >= 3).slice(0, 5);
-  if (!all.length) return;
+  const month = await propStats(e, todayDate, 30);
+  const ranked = month.filter((s) => s.days >= 3).slice(0, 5);
   const medals = ['🥇', '🥈', '🥉', '🏅', '🏅'];
-  const R = PROP_RULES;
-  const criteria = `🎯 یک نماد · 🕐 یک سشن · 🛑 همیشه استاپ‌لاس · 📋 طبق پلن · ⚖️ ریسک زیر ۱.۵٪ · ✅ وین‌ریت بالای ${fa(R.winRate)}٪ · 📅 حداقل ${fa(R.minDays)} روز ژورنال در ماه`;
 
   if (ranked.length) {
     const lines = ranked.map((s, i) => `${medals[i]} **${s.name}** — ⭐${fa(s.total)} · نظم ${fa(s.discipline)}٪ · وین‌ریت ${fa(s.winRate)}٪ · ${s.mainSymbol}`);
-    const desc = `${lines.join('\n')}\n\n**مسیر انتخاب برای همکاری و حساب پراپ 👑**\n${criteria}\n\nکارنامهٔ خودت را با دستور \`/my-stats\` ببین 👈`;
+    const desc = `${lines.join('\n')}\n\n🦅 تریدر حرفه‌ای با **یک نماد، یک سشن، استاپ‌لاس، پلن و مدیریت سرمایه** معامله می‌کند و هر روز ژورنال می‌نویسد.\n\nکارنامهٔ خودت را با دستور \`/my-stats\` ببین 👈`;
     await sendDiscord(e, await journalChannel(e), '', { title: '🏆 منظم‌ترین تریدرهای ۳۰ روز اخیر', description: desc, color: 0xd4af37, footer: { text: FOOTER } });
     await sendTelegram(
       e,
@@ -455,8 +477,7 @@ export async function weeklyPropReport(e: Env, todayDate: string) {
         '',
         ...ranked.map((s, i) => `${medals[i]} ${esc(s.name)} — ⭐${fa(s.total)} · نظم ${fa(s.discipline)}٪ · وین‌ریت ${fa(s.winRate)}٪`),
         '',
-        `👑 <b>بهترین‌ها برای همکاری و حساب پراپ انتخاب می‌شوند.</b>`,
-        criteria,
+        `🦅 در Bakartech سود یک روز مهم نیست؛ <b>نظم هر روز</b> مهم است.`,
         '',
         `💬 به تیم امپراطوری تریدرها بپیوند: ${DISCORD_INVITE}`,
         `#BakartechJournal`,
@@ -464,18 +485,49 @@ export async function weeklyPropReport(e: Env, todayDate: string) {
     );
   }
 
-  // private report for the teacher
+  // private list for the teacher: who has 3+ months of good journaling and can be reviewed
+  const all = await propStats(e, todayDate);
+  if (!all.length) return;
   const staff = await staffChannel(e);
   const rows = all.slice(0, 15).map(
     (s) =>
-      `${s.candidate ? '👑 **کاندید**' : '▫️'} **${s.name}** (${s.code}) — ⭐${fa(s.total)} | روز ${fa(s.days)} | نظم ${fa(s.discipline)}٪ | وین ${fa(s.winRate)}٪ | ${s.mainSymbol} ${fa(s.focus)}٪ | ریسک ${fa(s.riskOk)}٪ | R:R ${fa(s.avgRR)} | PF ${fa(s.profitFactor)} | ${money(s.net)}` +
-      (s.candidate ? '' : `\n   ↳ کم دارد: ${s.missing.slice(0, 3).join('، ')}`)
+      `${s.ready ? '✅ **آمادهٔ بررسی**' : '▫️'} **${s.name}** (${s.code}) — سابقه ${fa(Math.floor(s.historyDays / 30))} ماه | ⭐${fa(s.total)} | روز ${fa(s.days)} | نظم ${fa(s.discipline)}٪ | وین ${fa(s.winRate)}٪ | ${s.mainSymbol} ${fa(s.focus)}٪ | ریسک ${fa(s.riskOk)}٪ | R:R ${fa(s.avgRR)} | PF ${fa(s.profitFactor)} | ${money(s.net)}` +
+      (s.ready ? '' : `\n   ↳ کم دارد: ${s.missing.slice(0, 3).join('، ')}`)
   );
-  const cands = all.filter((s) => s.candidate).length;
+  const ready = all.filter((s) => s.ready).length;
   await sendDiscord(e, staff, '', {
-    title: `🔒 گزارش کاندیدهای پراپ | ${todayDate}`,
-    description: `👑 کاندید کامل: **${fa(cands)}** نفر از ${fa(all.length)} شاگرد فعال\n\n${rows.join('\n')}`.slice(0, 4000),
+    title: `🔒 فهرست بررسی همکاری | ${todayDate}`,
+    description: `✅ آمادهٔ بررسی (۳ ماه ژورنال + کارنامهٔ خوب): **${fa(ready)}** نفر از ${fa(all.length)} شاگرد فعال\nتصمیم با شماست؛ برای اعلام برنده از دستور \`/prop-announce\` استفاده کنید 👑\n\n${rows.join('\n')}`.slice(0, 4000),
     color: 0xe63212,
-    footer: { text: 'فقط برای استاد و ادمین‌ها · ۳۰ روز اخیر' },
+    footer: { text: 'فقط برای استاد و ادمین‌ها · ۹۰ روز اخیر' },
   });
+}
+
+/** Teacher-only: public announcement of a selected trader (Discord + Telegram) */
+export async function announcePropWinner(e: Env, user: any, note?: string) {
+  const name = user.global_name || user.username;
+  const desc = [
+    `🎉 **تبریک به <@${user.id}>!** 👑`,
+    '',
+    `بعد از بررسی کارنامه و ژورنال‌های منظمش، **${name}** برای **همکاری و حساب پراپ** با Bakartech Academy انتخاب شد 🚀`,
+    note ? `\n💬 ${note}` : '',
+    '',
+    '🦅 این نتیجهٔ نظم، صبر و ژورنال‌نویسی هر روزه است. تو هم می‌توانی؛ از امروز ژورنالت را بنویس ✍️',
+  ].join('\n');
+  await sendDiscord(e, e.CH_ANNOUNCE, `<@${user.id}>`, { title: '👑 انتخاب جدید تیم امپراطوری تریدرها', description: desc, color: 0xd4af37, footer: { text: FOOTER } });
+  await sendDiscord(e, await journalChannel(e), '', { title: '👑 انتخاب جدید تیم امپراطوری تریدرها', description: desc, color: 0xd4af37, footer: { text: FOOTER } });
+  await sendTelegram(
+    e,
+    [
+      `👑 <b>انتخاب جدید تیم امپراطوری تریدرهای Bakartech</b>`,
+      '',
+      `🎉 تبریک به <b>${esc(name)}</b>!`,
+      `بعد از بررسی کارنامه و ژورنال‌های منظمش، برای <b>همکاری و حساب پراپ</b> انتخاب شد 🚀`,
+      note ? `\n💬 ${esc(note)}` : '',
+      '',
+      `🦅 نتیجهٔ نظم، صبر و ژورنال‌نویسی هر روزه.`,
+      `💬 دیسکورد آکادمی: ${DISCORD_INVITE}`,
+      `#BakartechJournal`,
+    ].join('\n')
+  );
 }
