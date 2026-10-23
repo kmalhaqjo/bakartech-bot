@@ -1,6 +1,7 @@
 import { Env, TIERS, tierFor, nextTier, fa, FOOTER, kvGet, kvSet } from './env';
 import { queueNewMembers, ensureAccount, accountEmbed } from './onboard';
 import { propStats, statsText, announcePropWinner } from './journal';
+import { pointsOf } from './crm';
 
 const API = 'https://discord.com/api/v10';
 
@@ -249,7 +250,9 @@ async function myStats(e: Env, i: any) {
   const today = new Date(Date.now() + 210 * 60_000).toISOString().slice(0, 10);
   const s = (await propStats(e, today)).find((x) => String(x.code).toLowerCase() === code.toLowerCase());
   if (!s) return followUp(e, i, { content: `📭 در ۳ ماه اخیر ژورنالی با کد \`${code}\` ثبت نشده. از امروز شروع کن ✍️` });
-  return followUp(e, i, { content: statsText(s) });
+  const pts = await pointsOf(e, uid, code).catch(() => null);
+  const head = pts ? `🏅 **امتیاز تو: ${fa(pts.points)}** · رتبه: **${pts.rank}**\n\n` : '';
+  return followUp(e, i, { content: (head + statsText(s)).slice(0, 1990) });
 }
 
 export async function handleInteraction(e: Env, req: Request, ctx?: ExecutionContext): Promise<Response> {

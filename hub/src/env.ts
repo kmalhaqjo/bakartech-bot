@@ -24,7 +24,12 @@ export interface Env {
   JOURNAL_ADMIN_CODE?: string;     // default "admin"
   JOURNAL_ADMIN_PASSWORD?: string; // secret — lets the hub create student accounts via the journal app
   JOURNAL_NEW_LEVEL?: string;      // level for new accounts: Student | VIP
-  TG_SUMMARY_CHAT_ID?: string;     // Telegram chat(s) for the daily journal summary (comma separated); default ANALYSIS_TG_CHAT_ID
+  TG_SUMMARY_CHAT_ID?: string;
+  // Notion student CRM
+  NOTION_TOKEN?: string;           // secret — Notion integration token
+  NOTION_STUDENTS_DB?: string;
+  NOTION_ACTIVITIES_DB?: string;
+  NOTION_REWARDS_DB?: string;     // Telegram chat(s) for the daily journal summary (comma separated); default ANALYSIS_TG_CHAT_ID
 }
 
 const SCHEMA = [

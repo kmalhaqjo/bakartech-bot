@@ -9,6 +9,7 @@ import { handleInteraction, pollDiscord, registerCommands } from './discord';
 import { runScheduledJobs } from './jobs';
 import { pollJournal } from './journal';
 import { processOnboarding } from './onboard';
+import { syncCrm } from './crm';
 
 export default {
   async fetch(req: Request, e: Env, ctx: ExecutionContext): Promise<Response> {
@@ -44,5 +45,6 @@ export default {
     ctx.waitUntil(runScheduledJobs(e, event.scheduledTime));
     ctx.waitUntil(pollJournal(e).catch((err) => console.error('journal', err)));
     ctx.waitUntil(processOnboarding(e).catch((err) => console.error('onboarding', err)));
+    if (new Date(event.scheduledTime).getUTCMinutes() % 5 === 2) ctx.waitUntil(syncCrm(e).catch((err) => console.error('crm', err)));
   },
 };

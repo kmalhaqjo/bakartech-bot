@@ -36,10 +36,16 @@
 
     // Bakartech Journal app (accounts for new Discord members, daily summary, prop scoring)
     "JOURNAL_URL": "https://bakartech-journal-v2.pages.dev",
-    "JOURNAL_NEW_LEVEL": "Student"
+    "JOURNAL_NEW_LEVEL": "Student",
+
+    // Notion «Bakartech Student System» (Command Center)
+    "NOTION_STUDENTS_DB": "a3ec9d21c55f46d0919df4345a6bd048",
+    "NOTION_ACTIVITIES_DB": "822cbf6551e24353bd467c8e49bde1e3",
+    "NOTION_REWARDS_DB": "25d29d64a6c7484e9c800d9f25cec140"
   }
   // Secrets (set once in the Cloudflare dashboard → Settings → Variables and Secrets):
   //   DISCORD_BOT_TOKEN (required). Optional: GROQ_API_KEY,
   //   ANALYSIS_TG_BOT_TOKEN (bot that can post in the Telegram channel — daily analysis + journal summary),
-  //   JOURNAL_ADMIN_PASSWORD (journal app admin password — lets the hub create student accounts)
+  //   JOURNAL_ADMIN_PASSWORD (journal app admin password — lets the hub create student accounts),
+  //   NOTION_TOKEN (Notion integration with access to «Bakartech Student System»)
 }
