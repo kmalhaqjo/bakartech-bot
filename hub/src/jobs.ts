@@ -2,6 +2,7 @@ import { Env } from './env';
 import { sendDiscord, leaderboardEmbed } from './discord';
 import { SCREENSHOT_REQUESTS, tradeReportRequest, ANALYSIS_SYSTEM_PROMPT, MARKETS } from './texts';
 import { dailyJournalSummary, weeklyPropReport } from './journal';
+import { runContent, contentLaunch } from './content';
 
 // Iran has no daylight saving since 2022 → Tehran is always UTC+03:30
 export function tehranTime(ms: number) {
@@ -71,6 +72,9 @@ export async function runScheduledJobs(e: Env, scheduledTime: number) {
   const today = t.stamp.slice(0, 10);
   if (weekday && at(23, 45)) jobs.push(dailyJournalSummary(e, today)); // 23:15 Riyadh — today's journals → Telegram + Discord
   if (t.day === 5 && at(21, 0)) jobs.push(weeklyPropReport(e, today)); // Friday 20:30 Riyadh — top traders + private prop report
+
+  jobs.push(runContent(e, scheduledTime, t));
+  jobs.push(contentLaunch(e, scheduledTime, today));
 
   const res = await Promise.allSettled(jobs);
   res.forEach((r) => r.status === 'rejected' && console.error('job failed', r.reason));
