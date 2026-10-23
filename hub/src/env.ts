@@ -30,6 +30,11 @@ export interface Env {
   JOURNAL_TG_BOT_TOKEN?: string;   // secret — the journal app's Telegram bot (to remove duplicate journal posts)
   JOURNAL_TG_CHAT_ID?: string;     // chat where the journal app posts journals (default: VIP channel)
   // Notion student CRM
+  // Channel programs
+  FUNDEDNEXT_LINK?: string;        // FundedNext partner tracking link
+  FUNDEDNEXT_COUPON?: string;      // academy discount code
+  LIBRARY_URL?: string;            // big e-book library link
+  YT_CHANNEL_ID?: string;          // YouTube channel for live replays (auto-detected if empty)
   NOTION_TOKEN?: string;           // secret — Notion integration token
   NOTION_STUDENTS_DB?: string;
   NOTION_ACTIVITIES_DB?: string;

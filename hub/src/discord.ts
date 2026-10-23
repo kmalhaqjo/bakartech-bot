@@ -2,6 +2,7 @@ import { Env, TIERS, tierFor, nextTier, fa, FOOTER, kvGet, kvSet } from './env';
 import { queueNewMembers, ensureAccount, accountEmbed } from './onboard';
 import { propStats, statsText, announcePropWinner } from './journal';
 import { pointsOf } from './crm';
+import { handleVerifyClick } from './channels';
 
 const API = 'https://discord.com/api/v10';
 
@@ -260,6 +261,7 @@ export async function handleInteraction(e: Env, req: Request, ctx?: ExecutionCon
   if (!(await verifySignature(e, req, body))) return new Response('bad signature', { status: 401 });
   const i = JSON.parse(body);
   if (i.type === 1) return Response.json({ type: 1 });
+  if (i.type === 3 && i.data?.custom_id === 'bt_verify') return handleVerifyClick(e, i);
   if (i.type !== 2) return reply('—');
   const uid: string = i.member?.user?.id || i.user?.id;
   const name: string = i.data.name;

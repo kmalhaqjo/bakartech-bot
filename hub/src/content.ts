@@ -141,7 +141,8 @@ async function postFundamental(e: Env, ms: number) {
     e,
     `خبرهای اقتصادی امروز (از تقویم):\n${list}\n\nیک «تحلیل فاندامنتال روز» کوتاه (حداکثر ۱۸۰ کلمه) بنویس:\n1) این خبرها چه اثری می‌توانند روی دلار آمریکا، طلا (XAUUSD) و داوجونز (US30) بگذارند (سناریوی بالاتر/پایین‌تر از پیش‌بینی)\n2) یک توصیهٔ مدیریت ریسک برای سشن نیویورک\nعدد یا قیمتی غیر از داده‌های بالا ننویس.`
   );
-  if (text) await sendDiscord(e, CH.fundamental, '', embed('🌍 فاندامنتال روز | Bakartech', text, COLORS.blue));
+  const listText = evs.length ? evs.map(evLine).join('\n') : '📭 امروز خبر مهمی در تقویم نیست.';
+  await sendDiscord(e, CH.fundamental, '', embed('🌍 فاندامنتال امروز | به وقت کابل', `**📋 خبرهای امروز (منظم به ساعت کابل):**\n${listText}\n\n**🧭 تحلیل و اثر روی بازار:**\n${text || 'امروز داده کافی برای تحلیل نیست؛ بازار تکنیکالی حرکت می‌کند.'}`.slice(0, 4000), COLORS.blue));
 }
 
 // ------------------------------------------------------------------ market plans (gold, US30, pairs)
@@ -221,9 +222,11 @@ const SYLLABUS: Record<string, { ch: string; title: string; color: number; topic
 
 async function postLesson(e: Env, key: keyof typeof SYLLABUS, ms: number) {
   const s = SYLLABUS[key];
-  const topic = pick(s.topics, ms);
+  const n = Number((await kvGet(e, `lesson_n:${key}`)) ?? 0);
+  const topic = s.topics[n % s.topics.length];
+  await kvSet(e, `lesson_n:${key}`, String(n + 1));
   const text = await ai(e, `درس کوتاه امروز با موضوع «${topic}» (حداکثر ۲۰۰ کلمه):\n- یک تیتر جذاب\n- توضیح ساده\n- یک مثال روی طلا یا US30 (بدون عدد قیمت واقعی)\n- «✅ تمرین امروز:» یک کار عملی کوچک\nدر پایان یک جملهٔ انگیزشی کوتاه.`);
-  if (text) await sendDiscord(e, s.ch, '', embed(`${s.title}: ${topic}`, text + '\n\n💬 سؤال داشتید همین‌جا بپرسید.', s.color));
+  if (text) await sendDiscord(e, s.ch, '', embed(`${s.title} | درس ${fa((n % s.topics.length) + 1)} از ${fa(s.topics.length)}: ${topic}`, text + `\n\n❓ سؤال داشتید ← <#${CH.qa}>`, s.color));
 }
 
 async function postQuiz(e: Env, ms: number) {
@@ -336,8 +339,8 @@ export async function runContent(e: Env, ms: number, t: { day: number; hour: num
   const today = t.stamp.slice(0, 10);
   const jobs: [boolean, () => Promise<any>][] = [
     [at(7, 30), () => sendDiscord(e, CH.general, '', embed('☀️ صبح بخیر تریدرهای Bakartech', `${pick(MORNING, ms)}\n\n📰 تقویم امروز ← <#${CH.calendar}>\n🎯 پلن طلا و US30 ساعت ۱۵:۳۰ تهران ← <#${CH.gold}> · <#${CH.us30}>`, COLORS.gold))],
-    [weekday && at(8, 30), () => postDailyCalendar(e, ms)],
-    [weekday && at(9, 0), () => postFundamental(e, ms)],
+    [weekday && at(7, 0), () => postDailyCalendar(e, ms)], // 07:30 Kabul
+    [weekday && at(7, 30), () => postFundamental(e, ms)], // 08:00 Kabul
     [at(10, 0), () => postLesson(e, 'basics', ms)],
     [at(11, 0), () => postLesson(e, 'technical', ms)],
     [at(12, 0), () => postLesson(e, 'psychology', ms)],
@@ -348,10 +351,8 @@ export async function runContent(e: Env, ms: number, t: { day: number; hour: num
     [weekday && at(15, 32), () => pairsBoard(e, ms)],
     [t.day === 0 && at(20, 0), () => postWeeklyCalendar(e)],
     [t.day === 1 && at(18, 0), () => postAIWeekly(e, CH.tools, '🛠️ ابزار هفته', pick(TOOLS, ms), COLORS.blue)],
-    [t.day === 2 && at(18, 0), () => sendDiscord(e, CH.prop, '', embed('💼 نکتهٔ هفته | حساب پراپ', `**${pick(PROP_TIPS, ms)}** 🎯\n\n📌 حساب پراپ یعنی سرمایهٔ دیگران؛ نظم و مدیریت ریسک شرط اول است.`, COLORS.gold))],
-    [t.day === 3 && at(18, 0), () => sendDiscord(e, CH.books, '', embed('📚 کتاب هفته', (([n, a, d]) => `**${n}**\n✍️ ${a}\n\n${d}\n\n💬 اگر خوانده‌اید، مهم‌ترین درسش را بنویسید.`)(pick(BOOKS, ms)), COLORS.purple))],
+    [t.day === 3 && at(18, 0), () => sendDiscord(e, CH.books, '', embed('📚 کتاب هفته', (([n, a, d]) => `**${n}**\n✍️ ${a}\n\n${d}\n\n💬 اگر خوانده‌اید، مهم‌ترین درسش را بنویسید.${e.LIBRARY_URL ? `\n\n🏛️ کتابخانهٔ بزرگ آکادمی (۵۶ هزار+ جلد): ${e.LIBRARY_URL}` : ''}`)(pick(BOOKS, ms)), COLORS.purple))],
     [t.day === 4 && at(18, 0), () => postAIWeekly(e, CH.indicators, '📊 اندیکاتور هفته', pick(INDICATORS, ms), COLORS.green)],
-    [t.day === 6 && at(12, 0), () => sendDiscord(e, CH.guide, '', embed('🧭 راهنمای تریدر | چک‌لیست هفته', GUIDE, COLORS.gold))],
     [t.day === 5 && at(22, 0), () => bestTradesOfWeek(e, today)],
     [t.day === 5 && at(22, 5), () => lessonsFromLosses(e, today)],
     [at(23, 55), () => serverStats(e, today)],
