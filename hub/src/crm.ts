@@ -44,9 +44,18 @@ const S = (s: string | null) => ({ select: s ? { name: s } : null });
 const D = (d: string | null) => ({ date: d ? { start: d.slice(0, 10) } : null });
 const C = (b: boolean) => ({ checkbox: !!b });
 const REL = (id: string) => ({ relation: [{ id }] });
+const MS = (names: string[]) => ({ multi_select: names.map((name) => ({ name })) });
+const PKG: Record<string, { tag: string; section: string; points: number; title: string }> = {
+  course: { tag: '🎓 دوره جامع', section: '🎓 دوره جامع', points: 50, title: 'خرید دوره جامع ترید و منتورشیپ' },
+  vip_1m: { tag: '🦅 VIP اوطاق شکار', section: '👑 VIP', points: 30, title: 'عضویت VIP اوطاق شکار (۱ ماهه)' },
+  vip_3m: { tag: '🦅 VIP اوطاق شکار', section: '👑 VIP', points: 30, title: 'عضویت VIP اوطاق شکار (۳ ماهه)' },
+  vip_6m: { tag: '🦅 VIP اوطاق شکار', section: '👑 VIP', points: 30, title: 'عضویت VIP اوطاق شکار (۶ ماهه)' },
+  course60: { tag: '💎 دوره ۶۰ روزه', section: '💎 دوره ۶۰ روزه', points: 20, title: 'ثبت‌نام دوره ۶۰ روزه' },
+};
+const SECTION_ORDER = ['🎓 دوره جامع', '👑 VIP', '💎 دوره ۶۰ روزه'];
 
 async function ensureTables(e: Env) {
-  if ((await kvGet(e, 'crm_schema')) === '1') return;
+  if ((await kvGet(e, 'crm_schema')) === '2') return;
   await e.DB.batch([
     e.DB.prepare(
       `CREATE TABLE IF NOT EXISTS p_people (pk TEXT PRIMARY KEY, student_id TEXT, discord_id TEXT, code TEXT, name TEXT, level TEXT, joined TEXT, notion_page TEXT, points INTEGER DEFAULT 0, rank TEXT, hash TEXT)`
@@ -55,7 +64,9 @@ async function ensureTables(e: Env) {
       `CREATE TABLE IF NOT EXISTS p_ledger (k TEXT PRIMARY KEY, pk TEXT, type TEXT, points INTEGER, date TEXT, title TEXT, details TEXT, notion_page TEXT)`
     ),
   ]);
-  await kvSet(e, 'crm_schema', '1');
+  for (const col of ['tg_id TEXT', 'tg_user TEXT', 'section TEXT', 'packages TEXT', 'expires TEXT', 'paid REAL', 'region TEXT', 'tg_refs INTEGER'])
+    await e.DB.prepare(`ALTER TABLE p_people ADD COLUMN ${col}`).run().catch(() => null);
+  await kvSet(e, 'crm_schema', '2');
 }
 
 const today = () => new Date(Date.now() + 210 * 60_000).toISOString().slice(0, 10);
@@ -122,6 +133,43 @@ async function collect(e: Env) {
     const pnl = Number(j.pnl || 0);
     ledger(`j:${j.id}`, pk, '📓 ژورنال', pts, j.date, `ژورنال ${String(j.symbol).toUpperCase()} ${pnl >= 0 ? '+' : ''}${pnl}$`, `امتیاز ژورنال ${j.score}/100${clean(j) ? ' · منظم ✅' : ''}`);
   }
+  // Telegram bot (@Bakartechbot): VIP, full course and 60-day course members
+  if (e.BOT_DB) {
+    const { results: tg } = await e.BOT_DB.prepare(
+      `SELECT u.telegram_id, u.username, u.first_name, u.country_group, u.created_at,
+        (SELECT group_concat(package_id) FROM (SELECT DISTINCT package_id FROM memberships m WHERE m.telegram_id=u.telegram_id)) pk_all,
+        (SELECT MAX(expires_at) FROM memberships m WHERE m.telegram_id=u.telegram_id AND m.status='active') exp,
+        (SELECT SUM(amount) FROM payments p WHERE p.telegram_id=u.telegram_id AND p.status IN ('approved','confirmed','paid','done')) paid,
+        (SELECT COUNT(*) FROM referrals r WHERE r.referrer_id=u.telegram_id) refs
+       FROM users u WHERE EXISTS (SELECT 1 FROM memberships m WHERE m.telegram_id=u.telegram_id)`
+    ).all<any>();
+    const { results: mem } = await e.BOT_DB.prepare(`SELECT id, telegram_id, package_id, starts_at FROM memberships`).all<any>();
+    const { results: refs } = await e.BOT_DB.prepare(`SELECT referrer_id, referred_id, created_at FROM referrals`).all<any>();
+    const tgPk = new Map<string, string>();
+    for (const u of tg) {
+      const pk = `t:${u.telegram_id}`;
+      tgPk.set(String(u.telegram_id), pk);
+      const pkgs = String(u.pk_all || '').split(',').filter(Boolean);
+      const sections = pkgs.map((p) => PKG[p]?.section).filter(Boolean) as string[];
+      const section = SECTION_ORDER.find((s) => sections.includes(s)) || '👑 VIP';
+      upsert({ pk, name: u.first_name || u.username || `TG ${u.telegram_id}`, joined: u.created_at });
+      stmts.push(
+        db.prepare(`UPDATE p_people SET tg_id=?, tg_user=?, section=COALESCE(section, ?), packages=?, expires=?, paid=?, region=?, tg_refs=? WHERE pk=?`).bind(
+          String(u.telegram_id), u.username || null, section, [...new Set(pkgs.map((p) => PKG[p]?.tag).filter(Boolean))].join(','), u.exp || null, u.paid || 0,
+          u.country_group === 'regional' ? '🇦🇫🇮🇷 افغانستان و ایران' : '🌍 بین‌المللی', u.refs || 0, pk
+        )
+      );
+    }
+    for (const m of mem) {
+      const pk = tgPk.get(String(m.telegram_id));
+      const info = PKG[m.package_id];
+      if (pk && info) ledger(`m:${m.id}`, pk, '💳 خرید پکیج', info.points, String(m.starts_at || today()).slice(0, 10), info.title);
+    }
+    for (const r of refs) {
+      const pk = tgPk.get(String(r.referrer_id));
+      if (pk) ledger(`tref:${r.referred_id}`, pk, '👥 دعوت', 20, String(r.created_at || today()).slice(0, 10), 'معرفی موفق در ربات تلگرام', `کاربر: ${r.referred_id}`);
+    }
+  }
   for (let i = 0; i < stmts.length; i += 80) await db.batch(stmts.slice(i, i + 80));
 }
 
@@ -162,9 +210,10 @@ async function ranks(e: Env) {
 const SECTION_RULES: [RegExp, string][] = [
   [/vip|امپراطوری/i, '👑 VIP'],
   [/دوره|course|mentor|منتور|academy student/i, '🎓 دوره جامع'],
-  [/9|۹|پکیج|package/i, '💎 پکیج ۹ دالری'],
+  [/9|۹|۶۰|60|پکیج|package/i, '💎 دوره ۶۰ روزه'],
 ];
 async function sectionFor(e: Env, p: any): Promise<string> {
+  if (p.section) return p.section;
   if (p.discord_id && e.DISCORD_BOT_TOKEN) {
     try {
       let roles: any[] = JSON.parse((await kvGet(e, 'guild_roles_cache')) || 'null');
@@ -219,6 +268,13 @@ async function push(e: Env) {
       'سطح ژورنال': S(p.level === 'VIP' || p.level === 'Student' ? p.level : null),
       'کد ژورنال': R(p.code || ''),
       'Discord ID': R(p.discord_id || ''),
+      'پکیج‌ها': MS(String(p.packages || '').split(',').filter(Boolean)),
+      'انقضای عضویت': D(p.expires || null),
+      'پرداخت تأییدشده': N(p.paid ?? null),
+      'Telegram': R(p.tg_user ? '@' + p.tg_user : ''),
+      'Telegram ID': R(p.tg_id || ''),
+      'منطقه': S(p.region || null),
+      'معرفی تلگرام': N(p.tg_refs ?? null),
     };
     const hash = JSON.stringify(props);
     if (!p.notion_page) {

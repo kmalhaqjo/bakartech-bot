@@ -16,6 +16,11 @@
       "binding": "JOURNAL_DB",
       "database_name": "bakartech-journal-db",
       "database_id": "b53a3581-3a28-4b85-a335-62e001394b1d"
+    },
+    {
+      "binding": "BOT_DB",
+      "database_name": "bakartech-db",
+      "database_id": "29c17797-1d19-4ec2-84f6-d11f19b0fc74"
     }
   ],
   "vars": {

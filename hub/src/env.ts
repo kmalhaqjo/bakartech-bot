@@ -16,6 +16,8 @@ export interface Env {
   AI: Ai;
   // Bakartech Journal app database (read-only)
   JOURNAL_DB?: D1Database;
+  // Telegram bot @Bakartechbot database (read-only): users, memberships, payments, referrals
+  BOT_DB?: D1Database;
   GROQ_API_KEY?: string;
   ANALYSIS_TG_BOT_TOKEN?: string;
   ANALYSIS_TG_CHAT_ID?: string;
