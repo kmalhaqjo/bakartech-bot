@@ -285,10 +285,17 @@ async function push(e: Env) {
 /** every 5 minutes from cron */
 export async function syncCrm(e: Env) {
   if (!e.JOURNAL_DB) return;
-  await ensureTables(e);
-  await collect(e);
-  await ranks(e);
-  if (e.NOTION_TOKEN && e.NOTION_STUDENTS_DB) await push(e);
+  const started = new Date().toISOString();
+  try {
+    await ensureTables(e);
+    await collect(e);
+    await ranks(e);
+    if (e.NOTION_TOKEN && e.NOTION_STUDENTS_DB) await push(e);
+    await kvSet(e, 'crm_last', JSON.stringify({ at: started, ok: true, notion: !!e.NOTION_TOKEN }));
+  } catch (err: any) {
+    await kvSet(e, 'crm_last', JSON.stringify({ at: started, ok: false, error: String(err?.message || err).slice(0, 300) }));
+    throw err;
+  }
 }
 
 /** for /my-stats */

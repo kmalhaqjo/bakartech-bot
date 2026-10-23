@@ -15,6 +15,10 @@ export default {
   async fetch(req: Request, e: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === '/health') return new Response('OK');
+    if (url.pathname === '/crm-status') {
+      const { kvGet } = await import('./env');
+      return new Response((await kvGet(e, 'crm_last')) || 'not run yet', { headers: { 'content-type': 'application/json; charset=utf-8' } });
+    }
     await migrate(e);
 
     if (url.pathname === '/discord/interactions' && req.method === 'POST') return handleInteraction(e, req, ctx);
