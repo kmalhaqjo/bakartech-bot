@@ -16,7 +16,8 @@ const VIP_CHANNEL_SHORT = '3615555387'; // t.me/c/<id>/<message> for the VIP Tel
 const DISCORD_INVITE = 'https://discord.gg/kSbpG2hQCu';
 
 // Discord permission bits
-const VIEW = 1 << 10, SEND = 1 << 11, EMBED = 1 << 14, HISTORY = 1 << 16, REACT = 1 << 6, THREADS = 1 << 38;
+const VIEW = 1 << 10, SEND = 1 << 11, EMBED = 1 << 14, HISTORY = 1 << 16, REACT = 1 << 6;
+const THREADS = (1n << 35n) | (1n << 36n) | (1n << 38n); // create public/private threads, send in threads
 
 async function ensureChannel(e: Env, kvKey: string, name: string, catRe: RegExp, topic: string, privateCh = false): Promise<string> {
   const cached = await kvGet(e, kvKey);
@@ -56,19 +57,19 @@ const staffChannel = (e: Env) =>
 
 /** Opens the journal channel to everyone (read + react), members can't post; the bot keeps full rights. Runs once. */
 async function openJournalChannel(e: Env, channel: string) {
-  if ((await kvGet(e, 'journal_public_v1')) === '1') return;
+  if ((await kvGet(e, 'journal_public_v2')) === '1') return;
   const ch: any = await dapi(e, 'GET', `/channels/${channel}`);
   const keep = (ch.permission_overwrites || [])
     .filter((o: any) => o.id !== e.DISCORD_GUILD_ID && o.id !== e.DISCORD_APP_ID)
     .map((o: any) => ({ ...o, allow: String(BigInt(o.allow) & ~BigInt(SEND)), deny: String(BigInt(o.deny) & ~BigInt(VIEW | HISTORY)) }));
   await dapi(e, 'PATCH', `/channels/${channel}`, {
     permission_overwrites: [
-      { id: e.DISCORD_GUILD_ID, type: 0, allow: String(VIEW | HISTORY | REACT), deny: String(SEND | THREADS) },
+      { id: e.DISCORD_GUILD_ID, type: 0, allow: String(VIEW | HISTORY | REACT), deny: String(BigInt(SEND) | THREADS) },
       { id: e.DISCORD_APP_ID, type: 1, allow: String(VIEW | SEND | EMBED | HISTORY | REACT), deny: '0' },
       ...keep,
     ],
   });
-  await kvSet(e, 'journal_public_v1', '1');
+  await kvSet(e, 'journal_public_v2', '1');
 }
 
 // ---------------------------------------------------------------- helpers
@@ -89,7 +90,8 @@ const details = (j: any) => {
   }
 };
 /** same trade submitted twice → same signature */
-const sigOf = (j: any) => [j.kind, j.student_id || 'admin', j.date, String(j.symbol || '').toUpperCase(), j.trades, j.pnl].join('|');
+/** one journal per student + day + symbol; a re-submission is treated as a correction of the first one */
+const sigOf = (j: any) => [j.kind, j.student_id || 'admin', j.date, String(j.symbol || '').toUpperCase().trim()].join('|');
 
 function statusLine(j: any) {
   if (j.status === 'approved') return '✅ **تأیید شد توسط استاد**';
@@ -210,11 +212,12 @@ async function readJournals(e: Env, since: string) {
 }
 
 async function ensureTables(e: Env) {
-  if ((await kvGet(e, 'j_schema')) === '2') return;
+  if ((await kvGet(e, 'j_schema')) === '3') return;
   await e.DB.prepare(`CREATE TABLE IF NOT EXISTS j_posts (journal_id TEXT PRIMARY KEY, kind TEXT, message_id TEXT, status TEXT, published INTEGER DEFAULT 0)`).run();
   await e.DB.prepare(`ALTER TABLE j_posts ADD COLUMN sig TEXT`).run().catch(() => null);
   await e.DB.prepare(`ALTER TABLE j_posts ADD COLUMN feedback_id TEXT`).run().catch(() => null);
-  await kvSet(e, 'j_schema', '2');
+  await e.DB.prepare(`ALTER TABLE j_posts ADD COLUMN shown TEXT`).run().catch(() => null);
+  await kvSet(e, 'j_schema', '3');
 }
 
 export async function pollJournal(e: Env) {
@@ -227,44 +230,73 @@ export async function pollJournal(e: Env) {
   if (!rows.length) return;
 
   const posted = new Map<string, any>();
-  const bySig = new Map<string, any>();
-  (await e.DB.prepare(`SELECT * FROM j_posts`).all<any>()).results.forEach((r: any) => {
-    posted.set(r.journal_id, r);
-    if (r.sig) bySig.set(r.sig, r);
-  });
+  (await e.DB.prepare(`SELECT * FROM j_posts`).all<any>()).results.forEach((r: any) => posted.set(r.journal_id, r));
 
-  for (const j of rows) {
-    const key = `${j.kind}:${j.id}`;
-    const sig = sigOf(j);
-    const prev = posted.get(key);
-    const pub = j.published_message_id ? 1 : 0;
-    if (!prev) {
-      const dup = bySig.get(sig);
-      if (dup) {
-        // the same trade submitted twice → don't post it again, just follow the first card
-        await e.DB.prepare(`INSERT INTO j_posts(journal_id,kind,message_id,status,published,sig,feedback_id) VALUES(?,?,?,?,?,?,?)`)
-          .bind(key, j.kind, dup.message_id, j.status, pub, sig, 'dup')
-          .run();
-        continue;
-      }
-      const msg = await dapi(e, 'POST', `/channels/${channel}/messages`, { embeds: [embedFor(j)], allowed_mentions: { parse: [] } });
+  // group the same student + day + symbol (double submissions and corrections)
+  const groups = new Map<string, any[]>();
+  for (const j of rows) groups.set(sigOf(j), [...(groups.get(sigOf(j)) || []), j]);
+
+  for (const [sig, list] of groups) {
+    const latest = list[list.length - 1];
+    const keyOf = (j: any) => `${j.kind}:${j.id}`;
+    // the card that stays = the first one that already has its own Discord message
+    const own = list.map((j) => posted.get(keyOf(j))).filter((p) => p && p.feedback_id !== 'dup');
+    let primary = own[0];
+
+    if (!primary) {
+      const msg = await dapi(e, 'POST', `/channels/${channel}/messages`, { embeds: [embedFor(latest)], allowed_mentions: { parse: [] } });
       let fb: string | null = null;
-      if (j.kind === 'student') {
+      if (latest.kind === 'student') {
         const r = await dapi(e, 'POST', `/channels/${channel}/messages`, {
-          content: coachFeedback(j),
+          content: coachFeedback(latest),
           message_reference: { message_id: msg.id, fail_if_not_exists: false },
           allowed_mentions: { parse: [] },
         }).catch((err) => (console.error('feedback', err), null));
         fb = r?.id || null;
       }
-      const row = { journal_id: key, kind: j.kind, message_id: msg.id, status: j.status, published: pub, sig, feedback_id: fb };
-      await e.DB.prepare(`INSERT INTO j_posts(journal_id,kind,message_id,status,published,sig,feedback_id) VALUES(?,?,?,?,?,?,?)`)
-        .bind(key, j.kind, msg.id, j.status, pub, sig, fb)
+      primary = { journal_id: keyOf(latest), message_id: msg.id, feedback_id: fb, shown: latest.id, status: latest.status, published: latest.published_message_id ? 1 : 0 };
+      await e.DB.prepare(`INSERT OR REPLACE INTO j_posts(journal_id,kind,message_id,status,published,sig,feedback_id,shown) VALUES(?,?,?,?,?,?,?,?)`)
+        .bind(primary.journal_id, latest.kind, msg.id, latest.status, primary.published, sig, fb, latest.id)
         .run();
-      bySig.set(sig, row);
-    } else if (prev.status !== j.status || prev.published !== pub) {
-      await dapi(e, 'PATCH', `/channels/${channel}/messages/${prev.message_id}`, { embeds: [embedFor(j)] }).catch(() => null);
-      await e.DB.prepare(`UPDATE j_posts SET status=?, published=? WHERE journal_id=?`).bind(j.status, pub, key).run();
+      posted.set(primary.journal_id, primary);
+    }
+
+    // extra cards posted earlier for the same journal → remove them (only the bot's own duplicate messages)
+    for (const extra of own.slice(1)) {
+      await dapi(e, 'DELETE', `/channels/${channel}/messages/${extra.message_id}`).catch(() => null);
+      if (extra.feedback_id && extra.feedback_id !== 'dup') await dapi(e, 'DELETE', `/channels/${channel}/messages/${extra.feedback_id}`).catch(() => null);
+      await e.DB.prepare(`UPDATE j_posts SET message_id=?, feedback_id='dup' WHERE journal_id=?`).bind(primary.message_id, extra.journal_id).run();
+      extra.feedback_id = 'dup';
+    }
+
+    // every other entry of the group points at the primary card
+    for (const j of list) {
+      if (!posted.get(keyOf(j)))
+        await e.DB.prepare(`INSERT OR IGNORE INTO j_posts(journal_id,kind,message_id,status,published,sig,feedback_id) VALUES(?,?,?,?,?,?,'dup')`)
+          .bind(keyOf(j), j.kind, primary.message_id, j.status, j.published_message_id ? 1 : 0, sig)
+          .run();
+    }
+
+    // the card always shows the latest version (correction / approval / VIP link)
+    const pub = latest.published_message_id ? 1 : 0;
+    if (String(primary.shown) !== String(latest.id) || primary.status !== latest.status || Number(primary.published) !== pub) {
+      await dapi(e, 'PATCH', `/channels/${channel}/messages/${primary.message_id}`, { embeds: [embedFor(latest)] }).catch(() => null);
+      if (String(primary.shown) !== String(latest.id) && primary.feedback_id && primary.feedback_id !== 'dup' && latest.kind === 'student')
+        await dapi(e, 'PATCH', `/channels/${channel}/messages/${primary.feedback_id}`, { content: coachFeedback(latest) }).catch(() => null);
+      await e.DB.prepare(`UPDATE j_posts SET status=?, published=?, shown=? WHERE journal_id=?`).bind(latest.status, pub, latest.id, primary.journal_id).run();
+    }
+
+    // Telegram: the journal app posts every submission; remove the older duplicate posts (needs JOURNAL_TG_BOT_TOKEN)
+    if (list.length > 1 && e.JOURNAL_TG_BOT_TOKEN) {
+      for (const j of list.slice(0, -1)) {
+        if (!j.review_message_id || (await kvGet(e, `tgdel:${j.id}`))) continue;
+        const r = await fetch(`https://api.telegram.org/bot${e.JOURNAL_TG_BOT_TOKEN}/deleteMessage`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ chat_id: e.JOURNAL_TG_CHAT_ID || '-1003615555387', message_id: Number(j.review_message_id) }),
+        });
+        await kvSet(e, `tgdel:${j.id}`, r.ok ? 'ok' : `fail ${r.status} ${(await r.text()).slice(0, 120)}`);
+      }
     }
   }
 }
@@ -293,13 +325,10 @@ async function studentEntries(e: Env, fromDate: string, toDate: string) {
   )
     .bind(fromDate, toDate)
     .all<any>();
-  const seen = new Set<string>();
-  return results.filter((j: any) => {
-    const s = sigOf(j);
-    if (seen.has(s)) return false;
-    seen.add(s);
-    return true;
-  });
+  // keep only the latest version of each student + day + symbol
+  const latest = new Map<string, any>();
+  for (const j of results) latest.set(sigOf(j), j);
+  return [...latest.values()];
 }
 
 // ---------------------------------------------------------------- daily summary

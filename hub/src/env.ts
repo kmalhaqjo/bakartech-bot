@@ -25,6 +25,8 @@ export interface Env {
   JOURNAL_ADMIN_PASSWORD?: string; // secret — lets the hub create student accounts via the journal app
   JOURNAL_NEW_LEVEL?: string;      // level for new accounts: Student | VIP
   TG_SUMMARY_CHAT_ID?: string;
+  JOURNAL_TG_BOT_TOKEN?: string;   // secret — the journal app's Telegram bot (to remove duplicate journal posts)
+  JOURNAL_TG_CHAT_ID?: string;     // chat where the journal app posts journals (default: VIP channel)
   // Notion student CRM
   NOTION_TOKEN?: string;           // secret — Notion integration token
   NOTION_STUDENTS_DB?: string;

@@ -59,7 +59,7 @@ async function ensureTables(e: Env) {
 }
 
 const today = () => new Date(Date.now() + 210 * 60_000).toISOString().slice(0, 10);
-const sig = (j: any) => [j.student_id, j.date, String(j.symbol || '').toUpperCase(), j.trades, j.pnl].join('|');
+const sig = (j: any) => [j.student_id, j.date, String(j.symbol || '').toUpperCase().trim()].join('|');
 const clean = (j: any) => Number(j.sl) && Number(j.rules) && !Number(j.overtrade) && !Number(j.revenge);
 
 /** 1) people + ledger in D1 (cheap, no Notion calls) */
