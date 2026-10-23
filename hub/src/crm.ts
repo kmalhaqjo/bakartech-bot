@@ -141,7 +141,7 @@ async function collect(e: Env) {
         (SELECT MAX(expires_at) FROM memberships m WHERE m.telegram_id=u.telegram_id AND m.status='active') exp,
         (SELECT SUM(amount) FROM payments p WHERE p.telegram_id=u.telegram_id AND p.status IN ('approved','confirmed','paid','done')) paid,
         (SELECT COUNT(*) FROM referrals r WHERE r.referrer_id=u.telegram_id) refs,
-        (SELECT group_concat(t, ' · ') FROM (SELECT DISTINCT pm.title t FROM payments p JOIN payment_methods pm ON pm.id=p.method_id WHERE p.telegram_id=u.telegram_id AND p.status='approved')) methods
+        (SELECT group_concat(t, ' · ') FROM (SELECT DISTINCT COALESCE(pm.title, CASE lower(p.method_id) WHEN 'trc20' THEN '💎 USDT TRC20' WHEN 'bep20' THEN '🟡 USDT/USDC BEP20' WHEN 'hesabpay' THEN '🇦🇫 HesabPay' WHEN 'card' THEN '💳 کارت / Skool' WHEN 'skool' THEN '💳 کارت / Skool' ELSE p.method_id END) t FROM payments p LEFT JOIN payment_methods pm ON pm.id=p.method_id WHERE p.telegram_id=u.telegram_id AND p.status='approved')) methods
        FROM users u WHERE EXISTS (SELECT 1 FROM memberships m WHERE m.telegram_id=u.telegram_id)`
     ).all<any>();
     const { results: mem } = await e.BOT_DB.prepare(`SELECT id, telegram_id, package_id, starts_at FROM memberships`).all<any>();
@@ -348,7 +348,7 @@ async function pushRevenue(e: Env) {
        (SELECT COUNT(*) FROM payments x WHERE x.package_id=p.id AND x.status='approved') sold,
        (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.package_id=p.id AND x.status='approved') revenue,
        (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.package_id=p.id AND x.status='pending') pending,
-       (SELECT group_concat(t || ' ×' || n, ' · ') FROM (SELECT pm.title t, COUNT(*) n FROM payments x JOIN payment_methods pm ON pm.id=x.method_id WHERE x.package_id=p.id AND x.status='approved' GROUP BY pm.title ORDER BY n DESC)) methods
+       (SELECT group_concat(t || ' ×' || n, ' · ') FROM (SELECT COALESCE(pm.title, CASE lower(x.method_id) WHEN 'trc20' THEN '💎 USDT TRC20' WHEN 'bep20' THEN '🟡 USDT/USDC BEP20' WHEN 'hesabpay' THEN '🇦🇫 HesabPay' WHEN 'card' THEN '💳 کارت / Skool' WHEN 'skool' THEN '💳 کارت / Skool' ELSE x.method_id END) t, COUNT(*) n FROM payments x LEFT JOIN payment_methods pm ON pm.id=x.method_id WHERE x.package_id=p.id AND x.status='approved' GROUP BY t ORDER BY n DESC)) methods
      FROM packages p WHERE p.is_active=1 OR EXISTS (SELECT 1 FROM payments x WHERE x.package_id=p.id)`
   ).all<any>();
   const rows = results.map((r: any) => ({ key: r.id, title: r.title, sold: r.sold, revenue: r.revenue, pending: r.pending, price: r.price, methods: r.methods || '' }));
