@@ -55,7 +55,7 @@ const PKG: Record<string, { tag: string; section: string; points: number; title:
 const SECTION_ORDER = ['🎓 دوره جامع', '👑 VIP', '💎 دوره ۶۰ روزه'];
 
 async function ensureTables(e: Env) {
-  if ((await kvGet(e, 'crm_schema')) === '2') return;
+  if ((await kvGet(e, 'crm_schema')) === '3') return;
   await e.DB.batch([
     e.DB.prepare(
       `CREATE TABLE IF NOT EXISTS p_people (pk TEXT PRIMARY KEY, student_id TEXT, discord_id TEXT, code TEXT, name TEXT, level TEXT, joined TEXT, notion_page TEXT, points INTEGER DEFAULT 0, rank TEXT, hash TEXT)`
@@ -64,9 +64,9 @@ async function ensureTables(e: Env) {
       `CREATE TABLE IF NOT EXISTS p_ledger (k TEXT PRIMARY KEY, pk TEXT, type TEXT, points INTEGER, date TEXT, title TEXT, details TEXT, notion_page TEXT)`
     ),
   ]);
-  for (const col of ['tg_id TEXT', 'tg_user TEXT', 'section TEXT', 'packages TEXT', 'expires TEXT', 'paid REAL', 'region TEXT', 'tg_refs INTEGER'])
+  for (const col of ['tg_id TEXT', 'tg_user TEXT', 'section TEXT', 'packages TEXT', 'expires TEXT', 'paid REAL', 'region TEXT', 'tg_refs INTEGER', 'methods TEXT'])
     await e.DB.prepare(`ALTER TABLE p_people ADD COLUMN ${col}`).run().catch(() => null);
-  await kvSet(e, 'crm_schema', '2');
+  await kvSet(e, 'crm_schema', '3');
 }
 
 const today = () => new Date(Date.now() + 210 * 60_000).toISOString().slice(0, 10);
@@ -140,7 +140,8 @@ async function collect(e: Env) {
         (SELECT group_concat(package_id) FROM (SELECT DISTINCT package_id FROM memberships m WHERE m.telegram_id=u.telegram_id)) pk_all,
         (SELECT MAX(expires_at) FROM memberships m WHERE m.telegram_id=u.telegram_id AND m.status='active') exp,
         (SELECT SUM(amount) FROM payments p WHERE p.telegram_id=u.telegram_id AND p.status IN ('approved','confirmed','paid','done')) paid,
-        (SELECT COUNT(*) FROM referrals r WHERE r.referrer_id=u.telegram_id) refs
+        (SELECT COUNT(*) FROM referrals r WHERE r.referrer_id=u.telegram_id) refs,
+        (SELECT group_concat(t, ' · ') FROM (SELECT DISTINCT pm.title t FROM payments p JOIN payment_methods pm ON pm.id=p.method_id WHERE p.telegram_id=u.telegram_id AND p.status='approved')) methods
        FROM users u WHERE EXISTS (SELECT 1 FROM memberships m WHERE m.telegram_id=u.telegram_id)`
     ).all<any>();
     const { results: mem } = await e.BOT_DB.prepare(`SELECT id, telegram_id, package_id, starts_at FROM memberships`).all<any>();
@@ -154,9 +155,9 @@ async function collect(e: Env) {
       const section = SECTION_ORDER.find((s) => sections.includes(s)) || '👑 VIP';
       upsert({ pk, name: u.first_name || u.username || `TG ${u.telegram_id}`, joined: u.created_at });
       stmts.push(
-        db.prepare(`UPDATE p_people SET tg_id=?, tg_user=?, section=COALESCE(section, ?), packages=?, expires=?, paid=?, region=?, tg_refs=? WHERE pk=?`).bind(
+        db.prepare(`UPDATE p_people SET tg_id=?, tg_user=?, section=COALESCE(section, ?), packages=?, expires=?, paid=?, region=?, tg_refs=?, methods=? WHERE pk=?`).bind(
           String(u.telegram_id), u.username || null, section, [...new Set(pkgs.map((p) => PKG[p]?.tag).filter(Boolean))].join(','), u.exp || null, u.paid || 0,
-          u.country_group === 'regional' ? '🇦🇫🇮🇷 افغانستان و ایران' : '🌍 بین‌المللی', u.refs || 0, pk
+          u.country_group === 'regional' ? '🇦🇫🇮🇷 افغانستان و ایران' : '🌍 بین‌المللی', u.refs || 0, u.methods || null, pk
         )
       );
     }
@@ -275,6 +276,7 @@ async function push(e: Env) {
       'Telegram ID': R(p.tg_id || ''),
       'منطقه': S(p.region || null),
       'معرفی تلگرام': N(p.tg_refs ?? null),
+      'روش پرداخت': R(p.methods || ''),
     };
     const hash = JSON.stringify(props);
     if (!p.notion_page) {
@@ -345,16 +347,17 @@ async function pushRevenue(e: Env) {
     `SELECT p.id, p.title, p.price_international price,
        (SELECT COUNT(*) FROM payments x WHERE x.package_id=p.id AND x.status='approved') sold,
        (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.package_id=p.id AND x.status='approved') revenue,
-       (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.package_id=p.id AND x.status='pending') pending
+       (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.package_id=p.id AND x.status='pending') pending,
+       (SELECT group_concat(t || ' ×' || n, ' · ') FROM (SELECT pm.title t, COUNT(*) n FROM payments x JOIN payment_methods pm ON pm.id=x.method_id WHERE x.package_id=p.id AND x.status='approved' GROUP BY pm.title ORDER BY n DESC)) methods
      FROM packages p WHERE p.is_active=1 OR EXISTS (SELECT 1 FROM payments x WHERE x.package_id=p.id)`
   ).all<any>();
-  const rows = results.map((r: any) => ({ key: r.id, title: r.title, sold: r.sold, revenue: r.revenue, pending: r.pending, price: r.price }));
+  const rows = results.map((r: any) => ({ key: r.id, title: r.title, sold: r.sold, revenue: r.revenue, pending: r.pending, price: r.price, methods: r.methods || '' }));
   rows.push({
-    key: 'total', title: '💰 مجموع', price: null,
+    key: 'total', title: '💰 مجموع', price: null, methods: '',
     sold: rows.reduce((a, r) => a + r.sold, 0), revenue: rows.reduce((a, r) => a + r.revenue, 0), pending: rows.reduce((a, r) => a + r.pending, 0),
   });
   for (const r of rows) {
-    const props = { 'پکیج': T(r.title), 'فروش': N(r.sold), 'درآمد': N(r.revenue), 'در انتظار': N(r.pending), 'قیمت': N(r.price) };
+    const props = { 'پکیج': T(r.title), 'فروش': N(r.sold), 'درآمد': N(r.revenue), 'در انتظار': N(r.pending), 'قیمت': N(r.price), 'روش‌های پرداخت': R(r.methods) };
     const hash = JSON.stringify(props);
     const [page, old] = [await kvGet(e, `rev_page:${r.key}`), await kvGet(e, `rev_hash:${r.key}`)];
     if (old === hash && page) continue;
