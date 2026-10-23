@@ -44,6 +44,12 @@ export default {
   },
 
   async scheduled(event: ScheduledController, e: Env, ctx: ExecutionContext) {
+    // the student CRM (Notion) runs in its own invocation every 5 minutes, so it never shares limits with the rest
+    if (event.cron === '*/5 * * * *') {
+      await migrate(e);
+      ctx.waitUntil(syncCrm(e).catch((err) => console.error('crm', err)));
+      return;
+    }
     await migrate(e);
     ctx.waitUntil(pollDiscord(e).catch((err) => console.error('discord poll', err)));
     ctx.waitUntil(runScheduledJobs(e, event.scheduledTime));
@@ -54,9 +60,8 @@ export default {
       (async () => {
         const { kvGet } = await import('./env');
         if (!(await kvGet(e, 'active_scan'))) await startActiveScan(e, 7);
-        if (new Date(event.scheduledTime).getUTCMinutes() % 5 !== 2) await stepActiveScan(e);
+        await stepActiveScan(e);
       })().catch((err) => console.error('active scan', err))
     );
-    if (new Date(event.scheduledTime).getUTCMinutes() % 5 === 2) ctx.waitUntil(syncCrm(e).catch((err) => console.error('crm', err)));
   },
 };

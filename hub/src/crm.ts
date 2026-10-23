@@ -235,7 +235,7 @@ async function sectionFor(e: Env, p: any): Promise<string> {
 async function push(e: Env) {
   const db = e.DB;
   const studentsDb = e.NOTION_STUDENTS_DB!, actsDb = e.NOTION_ACTIVITIES_DB!, rewardsDb = e.NOTION_REWARDS_DB!;
-  let budget = 25;
+  let budget = 18;
 
   // per-student journal stats
   const stats = new Map<string, any>();
@@ -374,6 +374,7 @@ async function pushRevenue(e: Env) {
 export async function syncCrm(e: Env) {
   if (!e.JOURNAL_DB) return;
   const started = new Date().toISOString();
+  await kvSet(e, 'crm_last', JSON.stringify({ at: started, running: true })).catch(() => null);
   try {
     await ensureTables(e);
     await collect(e);
