@@ -45,14 +45,19 @@ async function uniqueCode(e: Env, base: string) {
 
 async function adminToken(e: Env): Promise<string> {
   if (!e.JOURNAL_ADMIN_PASSWORD) throw new Error('JOURNAL_ADMIN_PASSWORD not set');
-  const r = await fetch(`${journalUrl(e)}/api/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ role: 'admin', code: e.JOURNAL_ADMIN_CODE || 'admin', password: e.JOURNAL_ADMIN_PASSWORD }),
-  });
-  const d: any = await r.json().catch(() => ({}));
-  if (!r.ok || !d.token) throw new Error(`journal admin login failed: ${r.status} ${d.error || ''}`);
-  return d.token;
+  let last = '';
+  // the admin username may be stored as "admin" or "ADMIN"
+  for (const code of [...new Set([e.JOURNAL_ADMIN_CODE || 'admin', 'admin', 'ADMIN'])]) {
+    const r = await fetch(`${journalUrl(e)}/api/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ role: 'admin', code, password: e.JOURNAL_ADMIN_PASSWORD }),
+    });
+    const d: any = await r.json().catch(() => ({}));
+    if (r.ok && d.token) return d.token;
+    last = `${r.status} ${d.error || ''}`;
+  }
+  throw new Error(`journal admin login failed: ${last}`);
 }
 
 async function createStudent(e: Env, token: string, name: string, code: string, password: string) {
