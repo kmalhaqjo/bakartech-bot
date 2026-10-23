@@ -380,6 +380,13 @@ export async function contentLaunch(e: Env, ms: number, today: string) {
     () => pairsBoard(e, ms),
     () => serverStats(e, today),
   ];
+  // v2: check the calendar source and post the quiz once more
+  const v2 = Number((await kvGet(e, 'content_launch_v2')) ?? 0);
+  if (v2 < 2) {
+    await kvSet(e, 'content_launch_v2', String(v2 + 1));
+    await (v2 === 0 ? calendar(e) : postQuiz(e, ms)).catch((err) => console.error('launch v2', err));
+    return;
+  }
   const i = Number((await kvGet(e, 'content_launch_v1')) ?? 0);
   if (i >= steps.length) return;
   await kvSet(e, 'content_launch_v1', String(i + 1));
