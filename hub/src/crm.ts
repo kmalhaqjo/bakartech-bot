@@ -144,7 +144,10 @@ async function collect(e: Env) {
         (SELECT group_concat(t, ' · ') FROM (SELECT DISTINCT COALESCE(pm.title, CASE lower(p.method_id) WHEN 'trc20' THEN '💎 USDT TRC20' WHEN 'bep20' THEN '🟡 USDT/USDC BEP20' WHEN 'hesabpay' THEN '🇦🇫 HesabPay' WHEN 'card' THEN '💳 کارت / Skool' WHEN 'skool' THEN '💳 کارت / Skool' ELSE p.method_id END) t FROM payments p LEFT JOIN payment_methods pm ON pm.id=p.method_id WHERE p.telegram_id=u.telegram_id AND p.status='approved')) methods
        FROM users u WHERE EXISTS (SELECT 1 FROM memberships m WHERE m.telegram_id=u.telegram_id)`
     ).all<any>();
-    const { results: mem } = await e.BOT_DB.prepare(`SELECT id, telegram_id, package_id, starts_at FROM memberships`).all<any>();
+    const { results: mem } = await e.BOT_DB.prepare(`SELECT id, telegram_id, package_id, starts_at FROM memberships ORDER BY starts_at`).all<any>();
+    const allPays = (await e.BOT_DB.prepare(`SELECT id, telegram_id, package_id, amount, method_id, status, created_at FROM payments`).all<any>()).results;
+    const paidBy = new Map<string, number>();
+    uniquePayments(allPays).approved.forEach((p) => paidBy.set(String(p.telegram_id), (paidBy.get(String(p.telegram_id)) || 0) + Number(p.amount || 0)));
     const { results: refs } = await e.BOT_DB.prepare(`SELECT referrer_id, referred_id, created_at FROM referrals`).all<any>();
     const tgPk = new Map<string, string>();
     for (const u of tg) {
@@ -156,14 +159,24 @@ async function collect(e: Env) {
       upsert({ pk, name: u.first_name || u.username || `TG ${u.telegram_id}`, joined: u.created_at });
       stmts.push(
         db.prepare(`UPDATE p_people SET tg_id=?, tg_user=?, section=COALESCE(section, ?), packages=?, expires=?, paid=?, region=?, tg_refs=?, methods=? WHERE pk=?`).bind(
-          String(u.telegram_id), u.username || null, section, [...new Set(pkgs.map((p) => PKG[p]?.tag).filter(Boolean))].join(','), u.exp || null, u.paid || 0,
+          String(u.telegram_id), u.username || null, section, [...new Set(pkgs.map((p) => PKG[p]?.tag).filter(Boolean))].join(','), u.exp || null, paidBy.get(String(u.telegram_id)) || 0,
           u.country_group === 'regional' ? '🇦🇫🇮🇷 افغانستان و ایران' : '🌍 بین‌المللی', u.refs || 0, u.methods || null, pk
         )
       );
     }
+    const counted: any[] = [];
     for (const m of mem) {
       const pk = tgPk.get(String(m.telegram_id));
       const info = PKG[m.package_id];
+      const dup = counted.some((c) => c.telegram_id === m.telegram_id && c.package_id === m.package_id &&
+        (ONE_TIME.has(m.package_id) || Math.abs(Date.parse(String(c.starts_at).replace(' ', 'T') + 'Z') - Date.parse(String(m.starts_at).replace(' ', 'T') + 'Z')) < 7 * 86400_000));
+      if (dup) {
+        // a repeated purchase is not a new purchase: no points (fix rows that were already counted)
+        await db.prepare(`DELETE FROM p_ledger WHERE k=? AND notion_page IS NULL`).bind(`m:${m.id}`).run();
+        await db.prepare(`UPDATE p_ledger SET points=0, title=title || ' (تکراری)', details='fix' WHERE k=? AND notion_page IS NOT NULL AND points<>0`).bind(`m:${m.id}`).run();
+        continue;
+      }
+      counted.push(m);
       if (pk && info) ledger(`m:${m.id}`, pk, '💳 خرید پکیج', info.points, String(m.starts_at || today()).slice(0, 10), info.title);
     }
     for (const r of refs) {
@@ -315,6 +328,13 @@ async function push(e: Env) {
     budget--;
   }
 
+  // corrected rows (e.g. a repeated payment) → update their Notion page
+  const { results: fixes } = await db.prepare(`SELECT k, notion_page, title FROM p_ledger WHERE details='fix' LIMIT 5`).all<any>();
+  for (const f of fixes) {
+    await notion(e, 'PATCH', `/pages/${f.notion_page}`, { properties: { 'عنوان': T(f.title), 'امتیاز': N(0) } }).catch(() => null);
+    await db.prepare(`UPDATE p_ledger SET details='fixed' WHERE k=?`).bind(f.k).run();
+  }
+
   // reward suggestions for the teacher (never shown to students)
   if (budget > 0) {
     const { results: sugg } = await db.prepare(`SELECT k FROM kv WHERE k LIKE 'suggest:%' AND v='pending' LIMIT 3`).all<any>();
@@ -340,18 +360,43 @@ async function push(e: Env) {
   }
 }
 
+
+// ---------------------------------------------------------------- payments: count each purchase once
+// A student sometimes submits the same payment twice (or it gets approved twice). One-time packages
+// (course, course60) count once per person forever; VIP counts once per person per 7 days.
+const ONE_TIME = new Set(['course', 'course60']);
+const METHOD = (m: any) =>
+  ({ trc20: '💎 USDT TRC20', bep20: '🟡 USDT/USDC BEP20', hesabpay: '🇦🇫 HesabPay', card: '💳 کارت / Skool', skool: '💳 کارت / Skool', '1': '💎 USDT TRC20' } as any)[String(m ?? '').toLowerCase()] || String(m ?? '—');
+export function uniquePayments(all: any[]) {
+  const sorted = [...all].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  const days = (a: string, b: string) => Math.abs(Date.parse(a.replace(' ', 'T') + 'Z') - Date.parse(b.replace(' ', 'T') + 'Z')) / 86400_000;
+  const same = (k: any, p: any) => k.telegram_id === p.telegram_id && k.package_id === p.package_id && (ONE_TIME.has(p.package_id) || days(k.created_at, p.created_at) < 7);
+  const approved: any[] = [];
+  for (const p of sorted.filter((x) => x.status === 'approved')) if (!approved.some((k) => same(k, p))) approved.push(p);
+  const pending: any[] = [];
+  for (const p of sorted.filter((x) => x.status === 'pending')) if (!approved.some((k) => same(k, p)) && !pending.some((k) => same(k, p))) pending.push(p);
+  return { approved, pending };
+}
+
 /** 💰 revenue per package (from the Telegram bot payments) → Notion «💰 درآمد پکیج‌ها» */
 async function pushRevenue(e: Env) {
   if (!e.BOT_DB || !e.NOTION_REVENUE_DB) return;
-  const { results } = await e.BOT_DB.prepare(
-    `SELECT p.id, p.title, p.price_international price,
-       (SELECT COUNT(*) FROM payments x WHERE x.package_id=p.id AND x.status='approved') sold,
-       (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.package_id=p.id AND x.status='approved') revenue,
-       (SELECT COALESCE(SUM(amount),0) FROM payments x WHERE x.package_id=p.id AND x.status='pending') pending,
-       (SELECT group_concat(t || ' ×' || n, ' · ') FROM (SELECT COALESCE(pm.title, CASE lower(x.method_id) WHEN 'trc20' THEN '💎 USDT TRC20' WHEN 'bep20' THEN '🟡 USDT/USDC BEP20' WHEN 'hesabpay' THEN '🇦🇫 HesabPay' WHEN 'card' THEN '💳 کارت / Skool' WHEN 'skool' THEN '💳 کارت / Skool' ELSE x.method_id END) t, COUNT(*) n FROM payments x LEFT JOIN payment_methods pm ON pm.id=x.method_id WHERE x.package_id=p.id AND x.status='approved' GROUP BY t ORDER BY n DESC)) methods
-     FROM packages p WHERE p.is_active=1 OR EXISTS (SELECT 1 FROM payments x WHERE x.package_id=p.id)`
-  ).all<any>();
-  const rows = results.map((r: any) => ({ key: r.id, title: r.title, sold: r.sold, revenue: r.revenue, pending: r.pending, price: r.price, methods: r.methods || '' }));
+  const pk = (await e.BOT_DB.prepare(`SELECT id, title, price_international price, is_active FROM packages`).all<any>()).results;
+  const pays = (await e.BOT_DB.prepare(`SELECT id, telegram_id, package_id, amount, method_id, status, created_at FROM payments`).all<any>()).results;
+  const { approved, pending } = uniquePayments(pays);
+  const rows = pk
+    .filter((p: any) => p.is_active || pays.some((x: any) => x.package_id === p.id))
+    .map((p: any) => {
+      const a = approved.filter((x) => x.package_id === p.id);
+      const counts = new Map<string, number>();
+      a.forEach((x) => counts.set(METHOD(x.method_id), (counts.get(METHOD(x.method_id)) || 0) + 1));
+      return {
+        key: p.id, title: p.title, price: p.price, sold: a.length,
+        revenue: a.reduce((s, x) => s + Number(x.amount || 0), 0),
+        pending: pending.filter((x) => x.package_id === p.id).reduce((s, x) => s + Number(x.amount || 0), 0),
+        methods: [...counts.entries()].sort((x, y) => y[1] - x[1]).map(([t, n]) => `${t} ×${n}`).join(' · '),
+      };
+    });
   rows.push({
     key: 'total', title: '💰 مجموع', price: null, methods: '',
     sold: rows.reduce((a, r) => a + r.sold, 0), revenue: rows.reduce((a, r) => a + r.revenue, 0), pending: rows.reduce((a, r) => a + r.pending, 0),
