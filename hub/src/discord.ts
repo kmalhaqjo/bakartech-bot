@@ -163,9 +163,17 @@ export async function pollDiscord(e: Env) {
   }
 
   // 4) remember invite counters
-  stmts.push(e.DB.prepare(`DELETE FROM d_invites`));
-  for (const inv of invites) stmts.push(e.DB.prepare(`INSERT INTO d_invites(code,uses,inviter_id) VALUES(?,?,?)`).bind(inv.code, inv.uses || 0, inv.inviter?.id || null));
-  await e.DB.batch(stmts);
+  // only changed counters are written (rewriting every code each minute used most of the daily D1 write quota)
+  const current = new Set<string>();
+  for (const inv of invites) {
+    current.add(inv.code);
+    const prev = prevInv.get(inv.code);
+    const uses = inv.uses || 0, inviter = inv.inviter?.id || null;
+    if (!prev || prev.uses !== uses || (prev.inviter_id ?? null) !== inviter)
+      stmts.push(e.DB.prepare(`INSERT INTO d_invites(code,uses,inviter_id) VALUES(?,?,?) ON CONFLICT(code) DO UPDATE SET uses=excluded.uses, inviter_id=excluded.inviter_id`).bind(inv.code, uses, inviter));
+  }
+  for (const code of prevInv.keys()) if (!current.has(code)) stmts.push(e.DB.prepare(`DELETE FROM d_invites WHERE code=?`).bind(code));
+  if (stmts.length) await e.DB.batch(stmts);
   if (!firstRun) await queueNewMembers(e, newMembers).catch((err) => console.error('queue onboard', err));
 
   for (const uid of affected) await refreshRank(e, uid, byId.get(uid)).catch((err) => console.error('rank', uid, err));

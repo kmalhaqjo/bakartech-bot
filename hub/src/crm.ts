@@ -92,7 +92,7 @@ async function collect(e: Env) {
   const upsert = (p: any) =>
     stmts.push(
       db.prepare(
-        `INSERT INTO p_people(pk,student_id,discord_id,code,name,level,joined) VALUES(?,?,?,?,?,?,?) ON CONFLICT(pk) DO UPDATE SET student_id=COALESCE(excluded.student_id,student_id), discord_id=COALESCE(excluded.discord_id,discord_id), code=COALESCE(excluded.code,code), name=excluded.name, level=COALESCE(excluded.level,level)`
+        `INSERT INTO p_people(pk,student_id,discord_id,code,name,level,joined) VALUES(?,?,?,?,?,?,?) ON CONFLICT(pk) DO UPDATE SET student_id=COALESCE(excluded.student_id,student_id), discord_id=COALESCE(excluded.discord_id,discord_id), code=COALESCE(excluded.code,code), name=excluded.name, level=COALESCE(excluded.level,level) WHERE student_id IS NOT COALESCE(excluded.student_id,student_id) OR discord_id IS NOT COALESCE(excluded.discord_id,discord_id) OR code IS NOT COALESCE(excluded.code,code) OR name IS NOT excluded.name OR level IS NOT COALESCE(excluded.level,level)`
       ).bind(p.pk, p.student_id || null, p.discord_id || null, p.code || null, p.name, p.level || null, p.joined || null)
     );
   const ledger = (k: string, pk: string, type: string, points: number, date: string, title: string, details = '') =>
@@ -158,7 +158,7 @@ async function collect(e: Env) {
       const section = SECTION_ORDER.find((s) => sections.includes(s)) || '👑 VIP';
       upsert({ pk, name: u.first_name || u.username || `TG ${u.telegram_id}`, joined: u.created_at });
       stmts.push(
-        db.prepare(`UPDATE p_people SET tg_id=?, tg_user=?, section=COALESCE(section, ?), packages=?, expires=?, paid=?, region=?, tg_refs=?, methods=? WHERE pk=?`).bind(
+        db.prepare(`UPDATE p_people SET tg_id=?1, tg_user=?2, section=COALESCE(section, ?3), packages=?4, expires=?5, paid=?6, region=?7, tg_refs=?8, methods=?9 WHERE pk=?10 AND (tg_id IS NOT ?1 OR tg_user IS NOT ?2 OR section IS NOT COALESCE(section, ?3) OR packages IS NOT ?4 OR expires IS NOT ?5 OR paid IS NOT ?6 OR region IS NOT ?7 OR tg_refs IS NOT ?8 OR methods IS NOT ?9)`).bind(
           String(u.telegram_id), u.username || null, section, [...new Set(pkgs.map((p) => PKG[p]?.tag).filter(Boolean))].join(','), u.exp || null, paidBy.get(String(u.telegram_id)) || 0,
           u.country_group === 'regional' ? '🇦🇫🇮🇷 افغانستان و ایران' : '🌍 بین‌المللی', u.refs || 0, u.methods || null, pk
         )
@@ -205,10 +205,10 @@ async function ranks(e: Env) {
         if (SUGGEST_AT.has(r.name)) await kvSet(e, `suggest:${p.pk}:${r.min}`, 'pending');
       }
     }
-    stmts.push(e.DB.prepare(`UPDATE p_people SET points=?, rank=? WHERE pk=?`).bind(p.total, r.name, p.pk));
+    if (p.points !== p.total || p.rank !== r.name) stmts.push(e.DB.prepare(`UPDATE p_people SET points=?, rank=? WHERE pk=?`).bind(p.total, r.name, p.pk));
   }
   if (stmts.length) await e.DB.batch(stmts);
-  await kvSet(e, 'crm_ranked', '1');
+  if (firstRun) await kvSet(e, 'crm_ranked', '1');
   if (ups.length && e.DISCORD_BOT_TOKEN) {
     const ch = await journalChannel(e);
     for (const { p, r } of ups.slice(0, 5))

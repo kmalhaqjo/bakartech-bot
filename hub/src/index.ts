@@ -45,8 +45,8 @@ export default {
   },
 
   async scheduled(event: ScheduledController, e: Env, ctx: ExecutionContext) {
-    // the student CRM (Notion) runs in its own invocation every 5 minutes, so it never shares limits with the rest
-    if (event.cron === '*/5 * * * *') {
+    // the student CRM (Notion) runs in its own invocation every 15 minutes, so it never shares limits with the rest
+    if (event.cron === '*/15 * * * *') {
       await migrate(e);
       ctx.waitUntil(syncCrm(e).catch((err) => console.error('crm', err)));
       return;
