@@ -1,5 +1,5 @@
-import { Env } from './env';
-import { sendDiscord, leaderboardEmbed } from './discord';
+import { Env, kvGet, kvSet } from './env';
+import { sendDiscord, leaderboardEmbed, dapi } from './discord';
 import { SCREENSHOT_REQUESTS, tradeReportRequest, ANALYSIS_SYSTEM_PROMPT, MARKETS } from './texts';
 import { dailyJournalSummary, weeklyPropReport } from './journal';
 import { runContent, contentLaunch } from './content';
@@ -77,8 +77,23 @@ export async function runScheduledJobs(e: Env, scheduledTime: number) {
   jobs.push(runContent(e, scheduledTime, t));
   jobs.push(contentLaunch(e, scheduledTime, today));
   jobs.push(setupServer(e));
+  jobs.push(botAvatar(e));
   jobs.push(runChannelPrograms(e, scheduledTime, t));
 
   const res = await Promise.allSettled(jobs);
   res.forEach((r) => r.status === 'rejected' && console.error('job failed', r.reason));
+}
+
+/** One-time: give the bot the academy logo (server icon) as its profile picture, so DMs don't show the grey default. */
+async function botAvatar(e: Env) {
+  if (!e.DISCORD_BOT_TOKEN || (await kvGet(e, 'bot_avatar_v1'))) return;
+  const g = await dapi(e, 'GET', `/guilds/${e.DISCORD_GUILD_ID}`);
+  if (!g?.icon) return;
+  const r = await fetch(`https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=512`);
+  if (!r.ok) throw new Error(`icon fetch ${r.status}`);
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  await dapi(e, 'PATCH', '/users/@me', { avatar: `data:image/png;base64,${btoa(bin)}` });
+  await kvSet(e, 'bot_avatar_v1', String(Date.now()));
 }
