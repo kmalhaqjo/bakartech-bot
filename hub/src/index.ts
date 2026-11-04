@@ -11,6 +11,7 @@ import { pollJournal } from './journal';
 import { processOnboarding, startActiveScan, stepActiveScan } from './onboard';
 import { syncCrm } from './crm';
 import { pollQA } from './channels';
+import { pollJournalHelp } from './journalhelp';
 
 export default {
   async fetch(req: Request, e: Env, ctx: ExecutionContext): Promise<Response> {
@@ -57,6 +58,7 @@ export default {
     ctx.waitUntil(pollJournal(e).catch((err) => console.error('journal', err)));
     ctx.waitUntil(processOnboarding(e).catch((err) => console.error('onboarding', err)));
     ctx.waitUntil(pollQA(e).catch((err) => console.error('qa', err)));
+    ctx.waitUntil(pollJournalHelp(e).catch((err) => console.error('journal help', err)));
     // one-time (Oct 2026): journal accounts for everyone who was active on Discord in the last 7 days
     ctx.waitUntil(
       (async () => {
